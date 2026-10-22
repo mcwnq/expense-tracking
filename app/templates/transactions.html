@@ -12,10 +12,10 @@
 </form>
 <p class="muted">{{ rows|length }} transactions · net {{ total_cad|money }} CAD</p>
 <table>
-  <tr><th>Date</th><th>Card</th><th>Description</th><th class="num">Amount</th><th>Cur</th><th class="num">USD→CAD</th><th class="num">CAD</th></tr>
+  <tr><th>Date</th><th>Card</th><th>Description</th><th>Vendor</th><th class="num">Amount</th><th>Cur</th><th class="num">USD→CAD</th><th class="num">CAD</th></tr>
   {% for t in rows %}
   <tr>
-    <td>{{ t.txn_date }}</td><td>{{ t.account }}</td><td>{{ t.description }}</td>
+    <td>{{ t.txn_date }}</td><td>{{ t.account }}</td><td>{{ t.description }}</td><td>{{ t.vendor or "" }}</td>
     <td class="num">{{ t.amount_cents|money }}</td><td>{{ t.currency }}</td>
     <td class="num">{{ t.fx_rate or "" }}</td>
     <td class="num {% if t.cad_cents is none %}warn{% endif %}">{{ t.cad_cents|money }}</td>

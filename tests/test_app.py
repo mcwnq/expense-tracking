@@ -49,3 +49,23 @@ def test_formats_shared_across_cards_and_several_per_card(tmp_path):
     # a different card reuses the same format
     r = client.post("/import/preview", data={"account_id": 2}, files={"file": ("c.csv", TD, "text/csv")})
     assert 'value="TD style"' in r.text and "Matched" in r.text
+
+
+def test_summary_and_assign(tmp_path):
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=None))
+    client.post("/accounts", data={"name": "Visa", "currency": "CAD"})
+    data = "Date,Description,Amount\n2026-03-02,NINJATRADER,99.00\n2026-03-09,ZEN FUTURES*EVAL 50K 8443,80.00\n"
+    client.post("/import/confirm", data={"account_id": 1, "filename": "a.csv", "csv_text": data, "date_col": "Date",
+                "description_col": "Description", "amount_col": "Amount", "charges_positive": 1, "has_header": 1,
+                "format_name": "Amex"})
+    r = client.get("/summary?year=2026")
+    assert "NinjaTrader" in r.text and "Transactions that need a vendor" in r.text and 'value="ZEN FUTURES"' in r.text
+
+    client.post("/assign", data={"pattern": "ZEN FUTURES", "vendor_id": "new", "new_vendor": "MyFF", "category": "Prop firm evaluations"})
+    r = client.get("/summary?year=2026")
+    assert "MyFF" in r.text and "Transactions that need a vendor" not in r.text
+    assert "179.00" in r.text
+
+    csv_text = client.get("/summary.csv?year=2026").text
+    assert "Prop firm evaluations,MyFF,one-time" in csv_text
+    assert client.get("/vendors").status_code == 200

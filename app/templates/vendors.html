@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Vendors and rules</h1>
+<p class="muted">A rule is text to look for in the card description (not case-sensitive). When several rules match, the longest one wins, so "APEX RESET" can go to a different vendor than "APEX". Type is detected automatically (charged in 3+ months, or 2 months in a row, means recurring) unless you set it.</p>
+
+<h2>Add a vendor</h2>
+<form class="card" method="post" action="/vendors">
+  <div class="grid">
+    <div><label>Name</label><input name="name" required></div>
+    <div><label>Category</label><select name="category">{% for c in categories %}<option>{{ c }}</option>{% endfor %}</select></div>
+    <div><label>Match text (optional)</label><input name="pattern" placeholder="e.g. TOPSTEP"></div>
+  </div>
+  <button>Add vendor</button>
+</form>
+
+<table>
+  <tr><th>Vendor</th><th>Category and type</th><th>Rules</th><th class="num">Transactions</th><th></th></tr>
+  {% for v in vendors %}
+  <tr>
+    <td>{{ v.name }}</td>
+    <td>
+      <form class="inline" method="post" action="/vendors/{{ v.id }}">
+        <select name="category" aria-label="Category">{% for c in categories %}<option {% if c == v.category %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+        <select name="recurrence" aria-label="Type">
+          <option value="" {% if not v.recurrence %}selected{% endif %}>Auto-detect</option>
+          <option value="recurring" {% if v.recurrence == "recurring" %}selected{% endif %}>Recurring</option>
+          <option value="one-time" {% if v.recurrence == "one-time" %}selected{% endif %}>One-time</option>
+        </select>
+        <button class="secondary">Save</button>
+      </form>
+    </td>
+    <td>
+      {% for r in rules.get(v.id, []) %}
+        <form class="inline" method="post" action="/rules/{{ r.id }}/delete"><code>{{ r.pattern }}</code> <button class="link" title="Remove rule" aria-label="Remove rule {{ r.pattern }}">×</button></form>&nbsp;
+      {% endfor %}
+      <form class="inline" method="post" action="/rules"><input type="hidden" name="vendor_id" value="{{ v.id }}"><input name="pattern" size="12" placeholder="add rule" aria-label="New rule for {{ v.name }}"></form>
+    </td>
+    <td class="num">{{ v.n }}</td>
+    <td><form class="inline" method="post" action="/vendors/{{ v.id }}/delete" onsubmit="return confirm('Delete {{ v.name }}? Its transactions become unassigned.')"><button class="link">Delete</button></form></td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

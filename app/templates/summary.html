@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Summary {{ s.year }}{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <div>
+    <h1 style="margin:0">Business expenses {{ s.year }}</h1>
+    <p class="muted" style="margin:4px 0 0">Grouped by vendor, all amounts in CAD. Personal spending and card payments are left out.</p>
+  </div>
+  <form method="get" style="display:flex; gap:8px; align-items:flex-end">
+    <div><label>Tax year</label><select name="year" onchange="this.form.submit()">{% for y in years %}<option {% if y == s.year %}selected{% endif %}>{{ y }}</option>{% endfor %}</select></div>
+    <a href="/summary.csv?year={{ s.year }}">Export CSV</a>
+  </form>
+</div>
+
+<div class="kpis">
+  <div class="kpi"><div class="label">Total expenses</div><div class="value">${{ s.total|money }}</div></div>
+  <div class="kpi"><div class="label">Recurring · {{ s.count_for("recurring") }} vendors</div><div class="value">${{ s.total_for("recurring")|money }}</div></div>
+  <div class="kpi"><div class="label">One-time · {{ s.count_for("one-time") }} vendors</div><div class="value">${{ s.total_for("one-time")|money }}</div></div>
+  <div class="kpi {% if unassigned %}attention{% endif %}"><div class="label">Need a vendor</div><div class="value">{{ unassigned|length }}</div>{% if unassigned %}<a href="#unassigned" style="color:inherit">Assign them</a>{% endif %}</div>
+</div>
+{% if unconverted %}<p class="warn">{{ unconverted }} USD transaction(s) this year have no CAD amount yet and aren't counted. Use "Fetch rates now" on the Cards page.</p>{% endif %}
+
+<div class="toolbar">
+  <h2 style="margin:0">Monthly totals by vendor</h2>
+  <div class="segmented">
+    <a href="?year={{ s.year }}" class="{% if not show %}on{% endif %}">All</a><a href="?year={{ s.year }}&show=recurring" class="{% if show == 'recurring' %}on{% endif %}">Recurring</a><a href="?year={{ s.year }}&show=one-time" class="{% if show == 'one-time' %}on{% endif %}">One-time</a>
+  </div>
+</div>
+<div class="scroll">
+<table class="pivot">
+  <thead><tr><th>Vendor</th><th>Type</th>{% for m in ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"] %}<th class="num">{{ m }}</th>{% endfor %}<th class="num">Year</th></tr></thead>
+  {% for g in s.groups %}
+  <tbody>
+    <tr class="group"><th colspan="14">{{ g.name }}</th><td class="num">{{ g.total|money }}</td></tr>
+    {% for v in g.vendors %}
+    <tr>
+      <td>{{ v.name }}</td>
+      <td><span class="chip {{ v.recurrence }} {% if v.auto %}auto{% endif %}" title="{% if v.auto %}Detected automatically; change it on the Vendors page{% else %}Set by you{% endif %}">{{ "Recurring" if v.recurrence == "recurring" else "One-time" }}</span></td>
+      {% for c in v.months %}<td class="num">{{ c|money if c else "—" }}</td>{% endfor %}
+      <td class="num"><strong>{{ v.total|money }}</strong></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+  {% else %}
+  <tbody><tr><td colspan="15" class="muted">No assigned expenses for {{ s.year }} yet.</td></tr></tbody>
+  {% endfor %}
+  <tfoot><tr><th>Monthly total</th><td></td>{% for c in s.month_totals %}<td class="num">{{ c|money if c else "—" }}</td>{% endfor %}<td class="num">{{ s.month_totals|sum|money }}</td></tr></tfoot>
+</table>
+</div>
+
+{% if unassigned %}
+<h2 id="unassigned">Transactions that need a vendor</h2>
+<p class="muted">Pick a vendor, create one, or mark it personal. This saves a rule (the text to match), so future imports are assigned automatically.</p>
+<table>
+  <tr><th>Date</th><th>Card</th><th>Description</th><th class="num">CAD</th><th>Assign</th></tr>
+  {% for t in unassigned %}
+  <tr>
+    <td>{{ t.txn_date }}</td><td>{{ t.account }}</td><td>{{ t.description }}</td><td class="num">{{ t.cad_cents|money }}</td>
+    <td>
+      <form method="post" action="/assign" style="display:flex; flex-wrap:wrap; gap:6px; align-items:center">
+        <input type="hidden" name="back" value="/summary?year={{ s.year }}#unassigned">
+        <input name="pattern" value="{{ suggest(t.description) }}" size="14" title="Text to match in the description" aria-label="Match text">
+        <select name="vendor_id" aria-label="Vendor" onchange="this.form.querySelector('.newv').hidden = this.value !== 'new'">
+          <option value="new">New vendor…</option>
+          {% for v in all_vendors %}<option value="{{ v.id }}">{{ v.name }}</option>{% endfor %}
+        </select>
+        <span class="newv"><input name="new_vendor" placeholder="Vendor name" size="14" aria-label="New vendor name">
+          <select name="category" aria-label="Category">{% for c in categories %}<option {% if c == "Other business" %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></span>
+        <button>Save</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endblock %}

@@ -49,6 +49,20 @@ CREATE TABLE IF NOT EXISTS transactions (
     dedupe_key   TEXT NOT NULL UNIQUE
 );
 
+CREATE TABLE IF NOT EXISTS vendors (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE,
+    category   TEXT NOT NULL,
+    recurrence TEXT CHECK (recurrence IN ('recurring', 'one-time'))  -- NULL = detect automatically
+);
+
+-- A transaction belongs to the vendor of the longest rule pattern found in its description.
+CREATE TABLE IF NOT EXISTS vendor_rules (
+    id        INTEGER PRIMARY KEY,
+    pattern   TEXT NOT NULL UNIQUE,  -- upper-case substring
+    vendor_id INTEGER NOT NULL REFERENCES vendors(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS fx_rates (
     rate_date TEXT PRIMARY KEY,          -- ISO date of the Bank of Canada observation
     usd_cad   TEXT NOT NULL,             -- decimal string
@@ -62,4 +76,20 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Bring databases created by earlier versions up to date (tracked in PRAGMA user_version)."""
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version < 1:
+        conn.execute(
+            "ALTER TABLE transactions ADD COLUMN vendor_id INTEGER REFERENCES vendors(id) ON DELETE SET NULL"
+        )
+        from .vendors import apply_rules, seed_defaults
+
+        seed_defaults(conn)
+        apply_rules(conn)
+        conn.execute("PRAGMA user_version = 1")
+    conn.commit()
