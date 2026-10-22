@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Transactions</h1>
+<form class="card" method="get">
+  <div class="grid">
+    <div><label>Card</label><select name="account_id"><option value="">All cards</option>
+      {% for a in accounts %}<option value="{{ a.id }}" {% if a.id == account_id %}selected{% endif %}>{{ a.name }}</option>{% endfor %}</select></div>
+    <div><label>Month</label><select name="month"><option value="">All months</option>
+      {% for m in months %}<option {% if m == month %}selected{% endif %}>{{ m }}</option>{% endfor %}</select></div>
+  </div>
+  <button>Filter</button>
+</form>
+<p class="muted">{{ rows|length }} transactions · net {{ total_cad|money }} CAD</p>
+<table>
+  <tr><th>Date</th><th>Card</th><th>Description</th><th class="num">Amount</th><th>Cur</th><th class="num">USD→CAD</th><th class="num">CAD</th></tr>
+  {% for t in rows %}
+  <tr>
+    <td>{{ t.txn_date }}</td><td>{{ t.account }}</td><td>{{ t.description }}</td>
+    <td class="num">{{ t.amount_cents|money }}</td><td>{{ t.currency }}</td>
+    <td class="num">{{ t.fx_rate or "" }}</td>
+    <td class="num {% if t.cad_cents is none %}warn{% endif %}">{{ t.cad_cents|money }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}
