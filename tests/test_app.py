@@ -69,3 +69,7 @@ def test_summary_and_assign(tmp_path):
     csv_text = client.get("/summary.csv?year=2026").text
     assert "Prop firm evaluations,MyFF,one-time" in csv_text
     assert client.get("/vendors").status_code == 200
+
+def test_transactions_filter_all(tmp_path):
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=None))
+    assert client.get("/transactions?account_id=&month=").status_code == 200
