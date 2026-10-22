@@ -17,8 +17,8 @@ def test_weekend_uses_prior_business_day_and_converts(tmp_path):
     conn.execute("INSERT INTO accounts (name, currency) VALUES ('USD card', 'USD')")
     for i, (d, cents) in enumerate([("2026-01-03", 10000), ("2026-01-05", 1999)]):
         conn.execute(
-            "INSERT INTO transactions (account_id, txn_date, description, amount_cents, currency, dedupe_key) "
-            "VALUES (1, ?, 'X', ?, 'USD', ?)", (d, cents, str(i)))
+            "INSERT INTO transactions (account_id, txn_date, tax_date, description, amount_cents, currency, dedupe_key) "
+            "VALUES (1, ?, ?, 'X', ?, 'USD', ?)", (d, d, cents, str(i)))
     calls = []
     assert fx.fill_missing_cad(conn, fake_fetcher(calls)) == 0
     rows = conn.execute("SELECT fx_rate, cad_cents FROM transactions ORDER BY id").fetchall()
@@ -30,8 +30,8 @@ def test_offline_leaves_rows_unconverted(tmp_path):
     conn = db.connect(tmp_path / "t.db")
     conn.execute("INSERT INTO accounts (name, currency) VALUES ('USD card', 'USD')")
     conn.execute(
-        "INSERT INTO transactions (account_id, txn_date, description, amount_cents, currency, dedupe_key) "
-        "VALUES (1, '2026-01-03', 'X', 100, 'USD', 'k')")
+        "INSERT INTO transactions (account_id, txn_date, tax_date, description, amount_cents, currency, dedupe_key) "
+        "VALUES (1, '2026-01-03', '2026-01-03', 'X', 100, 'USD', 'k')")
 
     def offline(start, end):
         raise OSError("no network")

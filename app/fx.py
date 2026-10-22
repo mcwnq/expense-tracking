@@ -1,7 +1,9 @@
-"""USD -> CAD conversion using Bank of Canada daily rates (Valet API).
+"""USD -> CAD conversion using Bank of Canada rates (Valet API).
 
-Rates are cached in the fx_rates table. A transaction on a weekend or holiday
-uses the most recent prior business-day rate, which is what CRA accepts.
+Each tax year uses either daily rates or the Bank of Canada annual average
+rate (both are accepted by CRA). Daily rates are cached in the fx_rates
+table; a transaction on a weekend or holiday uses the most recent prior
+business-day rate.
 """
 
 import json
@@ -19,6 +21,11 @@ VALET_URL = (
 # How far back to look for a prior business-day rate (covers long weekends).
 LOOKBACK_DAYS = 7
 
+ANNUAL_URL = (
+    "https://www.bankofcanada.ca/valet/observations/FXAUSDCAD/json"
+    "?start_date={year}-01-01&end_date={year}-12-31"
+)
+
 Fetcher = Callable[[date, date], dict[str, str]]
 
 
@@ -32,6 +39,44 @@ def fetch_boc(start: date, end: date) -> dict[str, str]:
         for obs in payload.get("observations", [])
         if obs.get("FXUSDCAD", {}).get("v")
     }
+
+
+def fetch_boc_annual(year: int) -> str | None:
+    """Bank of Canada annual average USD->CAD for a year, once published (early January)."""
+    with urllib.request.urlopen(ANNUAL_URL.format(year=year), timeout=15) as resp:
+        payload = json.load(resp)
+    for obs in payload.get("observations", []):
+        value = obs.get("FXAUSDCAD", {}).get("v")
+        if value:
+            return value
+    return None
+
+
+def year_setting(conn: sqlite3.Connection, year: int) -> tuple[str, Decimal | None]:
+    row = conn.execute("SELECT fx_method, annual_rate FROM tax_years WHERE year = ?", (year,)).fetchone()
+    if not row:
+        return "daily", None
+    return row["fx_method"], Decimal(row["annual_rate"]) if row["annual_rate"] else None
+
+
+def set_year_method(
+    conn: sqlite3.Connection, year: int, method: str, annual_rate: str | None, fetcher: Fetcher | None = fetch_boc
+) -> int:
+    """Switch a tax year between daily and annual-average conversion and re-convert
+    its USD transactions. Returns how many are still unconverted."""
+    rate = Decimal(annual_rate) if annual_rate else None
+    conn.execute(
+        "INSERT INTO tax_years (year, fx_method, annual_rate) VALUES (?, ?, ?) "
+        "ON CONFLICT(year) DO UPDATE SET fx_method = excluded.fx_method, annual_rate = excluded.annual_rate",
+        (year, method, str(rate) if rate else None),
+    )
+    conn.execute(
+        "UPDATE transactions SET fx_rate = NULL, cad_cents = NULL "
+        "WHERE currency = 'USD' AND substr(tax_date, 1, 4) = ?",
+        (str(year),),
+    )
+    conn.commit()
+    return fill_missing_cad(conn, fetcher)
 
 
 def store_rates(conn: sqlite3.Connection, rates: dict[str, str], source: str = "boc") -> None:
@@ -76,22 +121,29 @@ def fill_missing_cad(conn: sqlite3.Connection, fetcher: Fetcher | None = fetch_b
     number of transactions still lacking a rate (e.g. when offline).
     """
     rows = conn.execute(
-        "SELECT id, txn_date, amount_cents FROM transactions "
+        "SELECT id, tax_date, amount_cents FROM transactions "
         "WHERE currency = 'USD' AND cad_cents IS NULL"
     ).fetchall()
     if not rows:
         return 0
 
-    if fetcher is not None:
-        dates = [date.fromisoformat(r["txn_date"]) for r in rows]
+    annual: dict[int, Decimal | None] = {}
+    for r in rows:
+        year = int(r["tax_date"][:4])
+        if year not in annual:
+            method, rate = year_setting(conn, year)
+            annual[year] = rate if method == "annual" else None
+
+    needs_daily = [date.fromisoformat(r["tax_date"]) for r in rows if annual[int(r["tax_date"][:4])] is None]
+    if fetcher is not None and needs_daily:
         try:
-            ensure_rates(conn, min(dates), max(dates), fetcher)
+            ensure_rates(conn, min(needs_daily), max(needs_daily), fetcher)
         except OSError:
             pass  # offline; leave unconverted and report below
 
     missing = 0
     for r in rows:
-        rate = _cached_rate(conn, date.fromisoformat(r["txn_date"]))
+        rate = annual[int(r["tax_date"][:4])] or _cached_rate(conn, date.fromisoformat(r["tax_date"]))
         if rate is None:
             missing += 1
             continue

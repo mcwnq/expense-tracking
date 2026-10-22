@@ -303,11 +303,12 @@ def save(
     for r, key in zip(rows, dedupe_keys(account["id"], rows)):
         cur = conn.execute(
             "INSERT OR IGNORE INTO transactions "
-            "(account_id, batch_id, txn_date, description, amount_cents, currency, cad_cents, dedupe_key) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "(account_id, batch_id, txn_date, tax_date, description, amount_cents, currency, cad_cents, dedupe_key) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 account["id"],
                 batch_id,
+                r.txn_date.isoformat(),
                 r.txn_date.isoformat(),
                 r.description,
                 r.amount_cents,

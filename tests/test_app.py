@@ -51,6 +51,43 @@ def test_formats_shared_across_cards_and_several_per_card(tmp_path):
     assert 'value="TD style"' in r.text and "Matched" in r.text
 
 
+def test_summary_and_assign(tmp_path):
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=None))
+    client.post("/accounts", data={"name": "Visa", "currency": "CAD"})
+    data = "Date,Description,Amount\n2026-03-02,NINJATRADER,99.00\n2026-03-09,ZEN FUTURES*EVAL 50K 8443,80.00\n"
+    client.post("/import/confirm", data={"account_id": 1, "filename": "a.csv", "csv_text": data, "date_col": "Date",
+                "description_col": "Description", "amount_col": "Amount", "charges_positive": 1, "has_header": 1,
+                "format_name": "Amex"})
+    r = client.get("/summary?year=2026")
+    assert "NinjaTrader" in r.text and "Transactions that need a vendor" in r.text and 'value="ZEN FUTURES"' in r.text
+
+    client.post("/assign", data={"pattern": "ZEN FUTURES", "vendor_id": "new", "new_vendor": "MyFF", "category": "Prop firm evaluations"})
+    r = client.get("/summary?year=2026")
+    assert "MyFF" in r.text and "Transactions that need a vendor" not in r.text
+    assert "179.00" in r.text
+
+    csv_text = client.get("/summary.csv?year=2026").text
+    assert "Prop firm evaluations,MyFF,one-time" in csv_text
+    assert client.get("/vendors").status_code == 200
+
 def test_transactions_filter_all(tmp_path):
     client = TestClient(create_app(tmp_path / "t.db", fetcher=None))
     assert client.get("/transactions?account_id=&month=").status_code == 200
+
+
+def test_annual_average_rate(tmp_path):
+    daily = lambda s, e: {"2026-03-02": "1.35"}
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=daily, annual_fetcher=lambda y: None))
+    client.post("/accounts", data={"name": "USD", "currency": "USD"})
+    data = "Date,Description,Amount\n2026-03-02,NINJATRADER,100.00\n"
+    client.post("/import/confirm", data={"account_id": 1, "filename": "a.csv", "csv_text": data, "date_col": "Date",
+                "description_col": "Description", "amount_col": "Amount", "charges_positive": 1, "has_header": 1,
+                "format_name": "x"})
+    assert "135.00" in client.get("/summary?year=2026").text
+
+    r = client.post("/tax-years/2026/fx", data={"method": "annual", "annual_rate": ""})
+    assert "isn" in r.text and "available yet" in r.text   # no published rate, nothing changed
+    r = client.post("/tax-years/2026/fx", data={"method": "annual", "annual_rate": "1.40"})
+    assert "140.00" in r.text and "use 1.40" in r.text
+    r = client.post("/tax-years/2026/fx", data={"method": "daily", "annual_rate": ""})
+    assert "135.00" in r.text

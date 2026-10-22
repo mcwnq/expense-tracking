@@ -15,17 +15,26 @@ On Windows with the Python install manager, use `py` instead: `py -m pip install
 
 Then open http://127.0.0.1:8000. Your data is stored in `expenses.db` in the folder you run from (set `EXPENSE_DB=/path/to/file.db` to put it somewhere else). It never leaves your machine; the only network call is fetching USD→CAD rates from the Bank of Canada.
 
-## What works so far (step 1)
+## Step 1: import
 
 - **Cards**: add each credit card as CAD or USD.
 - **CSV import with saved formats**: upload a statement, check the guessed column mapping (date, description, signed amount or debit/credit, date format, header or not), preview, then import. The mapping is saved as a named format. Later files are matched to a saved format by their header row (or column count when headerless), so one format can serve several cards and a card can use several formats. Manage them under "CSV formats". Re-importing overlapping statements doesn't create duplicates, and an import can be undone from the home page.
 - **USD→CAD**: USD transactions are converted with the Bank of Canada daily rate for the transaction date (prior business day on weekends and holidays). Rates are cached locally; if you're offline, use "Fetch rates now" later.
 - **Transactions**: filter by card and month, with CAD totals.
 
+## Step 2: grouping and totals
+
+- **Vendors and rules**: each transaction is assigned to a vendor by matching text in its description (e.g. `TOPSTEP`). Common prop firms, platforms and data vendors come preloaded; card payments are excluded automatically. The longest matching rule wins, so `APEXTRADERFUNDING RESET` can be its own vendor.
+- **Summary**: a vendor × month grid in CAD with monthly and yearly totals, grouped by category, filterable to recurring or one-time, exportable as CSV.
+- **One-time vs recurring**: detected automatically (charged in 3+ months, or two months in a row) and overridable per vendor.
+- **Tax date and year-end check**: card dates are often UTC, so an evening charge on Dec 31 can post as Jan 1. Each transaction has a "counts on" date (defaults to the card date, editable on Transactions) that sets its tax year, month and USD rate. The summary lists Jan 1–2 charges with a one-click move to Dec 31 of the prior year.
+- **Annual average rate**: per tax year, convert USD at the daily Bank of Canada rate or at the annual average rate (fetched from the Bank of Canada once published, or typed in).
+- **Unassigned transactions**: listed under the summary with a one-click form that saves a rule; mark personal spending as "Personal (exclude)".
+
 ## Roadmap
 
 1. ~~Data model, CSV import, USD→CAD conversion~~
-2. Vendor grouping, monthly and yearly totals, one-time vs recurring tags
+2. ~~Vendor grouping, monthly and yearly totals, one-time vs recurring tags~~
 3. Prop firm payout entry and T5008 entry (trading reported as business income)
 4. T2125 line mapping and year-end summary
 
