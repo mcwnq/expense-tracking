@@ -10,11 +10,11 @@
   </div>
   <button>Filter</button>
 </form>
-<p class="muted">{{ rows|length }} transactions · net {{ total_cad|money }} CAD</p>
+<p class="muted">{{ rows|length }} transactions · net {{ total_cad|money }} CAD (excluded lines not counted)</p>
 <table>
-  <tr><th>Card date</th><th>Counts on <span class="muted" title="The date used for the tax year, month and USD rate. Change it if the card date is off (e.g. UTC).">ⓘ</span></th><th>Card</th><th>Description</th><th>Vendor</th><th class="num">Amount</th><th>Cur</th><th class="num">USD→CAD</th><th class="num">CAD</th></tr>
+  <tr><th>Card date</th><th>Counts on <span class="muted" title="The date used for the tax year, month and USD rate. Change it if the card date is off (e.g. UTC).">ⓘ</span></th><th>Card</th><th>Description</th><th>Vendor</th><th class="num">Amount</th><th>Cur</th><th class="num">USD→CAD</th><th class="num">CAD</th><th>Exclude</th></tr>
   {% for t in rows %}
-  <tr>
+  <tr {% if t.excluded %}class="excluded"{% endif %}>
     <td>{{ t.txn_date }}</td>
     <td><form class="inline" method="post" action="/transactions/{{ t.id }}/tax-date">
       <input type="hidden" name="back" value="/transactions?account_id={{ account_id or '' }}&month={{ month or '' }}">
@@ -25,6 +25,11 @@
     <td class="num">{{ t.amount_cents|money }}</td><td>{{ t.currency }}</td>
     <td class="num">{{ t.fx_rate or "" }}</td>
     <td class="num {% if t.cad_cents is none %}warn{% endif %}">{{ t.cad_cents|money }}</td>
+    <td><form class="inline" method="post" action="/transactions/{{ t.id }}/exclude">
+      <input type="hidden" name="back" value="/transactions?account_id={{ account_id or '' }}&month={{ month or '' }}">
+      <input type="hidden" name="excluded" value="{{ 0 if t.excluded else 1 }}">
+      <input type="checkbox" {% if t.excluded %}checked{% endif %} onchange="this.form.submit()" aria-label="Exclude {{ t.description }} from business expenses" title="Not a business expense">
+    </form></td>
   </tr>
   {% endfor %}
 </table>

@@ -29,6 +29,7 @@ Then open http://127.0.0.1:8000. Your data is stored in `expenses.db` in the fol
 - **One-time vs recurring**: detected automatically (charged in 3+ months, or two months in a row) and overridable per vendor.
 - **Tax date and year-end check**: card dates are often UTC, so an evening charge on Dec 31 can post as Jan 1. Each transaction has a "counts on" date (defaults to the card date, editable on Transactions) that sets its tax year, month and USD rate. The summary lists Jan 1–2 charges with a one-click move to Dec 31 of the prior year.
 - **Annual average rate**: per tax year, convert USD at the daily Bank of Canada rate or at the annual average rate (fetched from the Bank of Canada once published, or typed in).
+- **Exclude non-business lines**: tick "Exclude" on any transaction (or "Exclude this line" in the unassigned list) to leave it out of all totals. To exclude every charge from a merchant, give its vendor the category "Personal (exclude)".
 - **Unassigned transactions**: listed under the summary with a one-click form that saves a rule; mark personal spending as "Personal (exclude)".
 
 ## Roadmap

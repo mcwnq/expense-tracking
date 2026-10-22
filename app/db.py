@@ -106,4 +106,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE transactions ADD COLUMN tax_date TEXT")
         conn.execute("UPDATE transactions SET tax_date = txn_date")
         conn.execute("PRAGMA user_version = 2")
+    if version < 3:
+        # Per-line exclusion, e.g. a personal purchase from a vendor you also buy business items from.
+        conn.execute("ALTER TABLE transactions ADD COLUMN excluded INTEGER NOT NULL DEFAULT 0")
+        conn.execute("PRAGMA user_version = 3")
     conn.commit()

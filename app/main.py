@@ -181,7 +181,7 @@ def create_app(
                 "SELECT DISTINCT substr(tax_date, 1, 7) FROM transactions ORDER BY 1 DESC"
             )
         ]
-        total_cad = sum(r["cad_cents"] or 0 for r in rows)
+        total_cad = sum(r["cad_cents"] or 0 for r in rows if not r["excluded"])
         return render(
             request,
             "transactions.html",
@@ -279,6 +279,11 @@ def create_app(
     def change_tax_date(txn_id: int, tax_date: date = Form(...), back: str = Form("/transactions")):
         vendors.set_tax_date(conn, txn_id, tax_date.isoformat())
         fx.fill_missing_cad(conn, fetcher)
+        return RedirectResponse(back, status_code=303)
+
+    @app.post("/transactions/{txn_id}/exclude")
+    def exclude(txn_id: int, excluded: int = Form(0), back: str = Form("/transactions")):
+        vendors.set_excluded(conn, txn_id, bool(excluded))
         return RedirectResponse(back, status_code=303)
 
     @app.post("/assign")

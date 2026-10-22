@@ -97,3 +97,17 @@ def test_year_end_move_changes_tax_year_and_fx(tmp_path):
     s25 = vendors.summary(conn, 2025)
     assert s25.month_totals[11] == 22350 + 13700
     assert vendors.summary(conn, 2026).total == 0
+
+
+def test_excluded_line_left_out(tmp_path):
+    conn = setup(tmp_path, [("2026-05-01", "AMAZON BOOK", 3000), ("2026-05-02", "AMAZON GIFT", 5000), ("2026-01-01", "UBER", 900)])
+    vid = vendors.get_or_create_vendor(conn, "Amazon", "Office supplies")
+    vendors.add_rule(conn, "AMAZON", vid)
+    gift = conn.execute("SELECT id FROM transactions WHERE description = 'AMAZON GIFT'").fetchone()[0]
+    uber = conn.execute("SELECT id FROM transactions WHERE description = 'UBER'").fetchone()[0]
+    vendors.set_excluded(conn, gift, True)
+    vendors.set_excluded(conn, uber, True)
+    assert vendors.summary(conn, 2026).total == 3000
+    assert vendors.unassigned(conn, 2026) == [] and vendors.year_end_check(conn, 2026) == []
+    vendors.set_excluded(conn, gift, False)
+    assert vendors.summary(conn, 2026).total == 8000

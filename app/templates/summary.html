@@ -85,7 +85,7 @@
 
 {% if unassigned %}
 <h2 id="unassigned">Transactions that need a vendor</h2>
-<p class="muted">Pick a vendor, create one, or mark it personal. This saves a rule (the text to match), so future imports are assigned automatically.</p>
+<p class="muted">Pick or create a vendor; this saves a rule (the text to match) so future imports are assigned automatically. If a line isn't a business expense, exclude just that line. To exclude a whole merchant, give it the category "Personal (exclude)".</p>
 <table>
   <tr><th>Date</th><th>Card</th><th>Description</th><th class="num">CAD</th><th>Assign</th></tr>
   {% for t in unassigned %}
@@ -102,6 +102,10 @@
         <span class="newv"><input name="new_vendor" placeholder="Vendor name" size="14" aria-label="New vendor name">
           <select name="category" aria-label="Category">{% for c in categories %}<option {% if c == "Other business" %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></span>
         <button>Save</button>
+      </form>
+      <form class="inline" method="post" action="/transactions/{{ t.id }}/exclude">
+        <input type="hidden" name="excluded" value="1"><input type="hidden" name="back" value="/summary?year={{ s.year }}#unassigned">
+        <button class="link" title="Leave just this line out of business expenses">Exclude this line</button>
       </form>
     </td>
   </tr>

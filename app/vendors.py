@@ -177,7 +177,7 @@ def summary(conn: sqlite3.Connection, year: int, only: str | None = None) -> Sum
         "SELECT v.id, v.name, v.category, v.recurrence, CAST(substr(t.tax_date, 6, 2) AS INTEGER) AS m, "
         "SUM(t.cad_cents) AS cents, SUM(CASE WHEN t.amount_cents > 0 THEN 1 ELSE 0 END) AS charges "
         "FROM transactions t JOIN vendors v ON v.id = t.vendor_id "
-        "WHERE substr(t.tax_date, 1, 4) = ? AND t.cad_cents IS NOT NULL "
+        "WHERE substr(t.tax_date, 1, 4) = ? AND t.cad_cents IS NOT NULL AND NOT t.excluded "
         "GROUP BY v.id, m",
         (str(year),),
     ).fetchall()
@@ -213,7 +213,7 @@ def summary(conn: sqlite3.Connection, year: int, only: str | None = None) -> Sum
 def unassigned(conn: sqlite3.Connection, year: int) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT t.*, a.name AS account FROM transactions t JOIN accounts a ON a.id = t.account_id "
-        "WHERE t.vendor_id IS NULL AND substr(t.tax_date, 1, 4) = ? ORDER BY t.tax_date",
+        "WHERE t.vendor_id IS NULL AND NOT t.excluded AND substr(t.tax_date, 1, 4) = ? ORDER BY t.tax_date",
         (str(year),),
     ).fetchall()
 
@@ -229,9 +229,15 @@ def year_end_check(conn: sqlite3.Connection, year: int) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT t.*, a.name AS account, v.name AS vendor FROM transactions t "
         "JOIN accounts a ON a.id = t.account_id LEFT JOIN vendors v ON v.id = t.vendor_id "
-        f"WHERE t.txn_date IN ({','.join('?' * len(days))}) AND t.amount_cents > 0 ORDER BY t.txn_date",
+        f"WHERE t.txn_date IN ({','.join('?' * len(days))}) AND t.amount_cents > 0 AND NOT t.excluded ORDER BY t.txn_date",
         days,
     ).fetchall()
+
+
+def set_excluded(conn: sqlite3.Connection, txn_id: int, excluded: bool) -> None:
+    """Leave one transaction out of business totals (or bring it back)."""
+    conn.execute("UPDATE transactions SET excluded = ? WHERE id = ?", (int(excluded), txn_id))
+    conn.commit()
 
 
 def set_tax_date(conn: sqlite3.Connection, txn_id: int, tax_date: str) -> None:

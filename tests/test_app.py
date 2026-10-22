@@ -91,3 +91,15 @@ def test_annual_average_rate(tmp_path):
     assert "140.00" in r.text and "use 1.40" in r.text
     r = client.post("/tax-years/2026/fx", data={"method": "daily", "annual_rate": ""})
     assert "135.00" in r.text
+
+
+def test_exclude_route(tmp_path):
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=None))
+    client.post("/accounts", data={"name": "Visa", "currency": "CAD"})
+    data = "Date,Description,Amount\n2026-03-02,NINJATRADER,99.00\n2026-03-03,NINJATRADER MERCH,25.00\n"
+    client.post("/import/confirm", data={"account_id": 1, "filename": "a.csv", "csv_text": data, "date_col": "Date",
+                "description_col": "Description", "amount_col": "Amount", "charges_positive": 1, "has_header": 1,
+                "format_name": "x"})
+    r = client.post("/transactions/2/exclude", data={"excluded": 1})
+    assert 'class="excluded"' in r.text and "net 99.00 CAD" in r.text
+    assert "124.00" not in client.get("/summary?year=2026").text
