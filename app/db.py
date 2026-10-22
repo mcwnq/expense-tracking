@@ -7,19 +7,25 @@ from pathlib import Path
 DEFAULT_DB_PATH = Path(os.environ.get("EXPENSE_DB", "expenses.db"))
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS accounts (
+CREATE TABLE IF NOT EXISTS csv_formats (
     id              INTEGER PRIMARY KEY,
     name            TEXT NOT NULL UNIQUE,
-    currency        TEXT NOT NULL CHECK (currency IN ('CAD', 'USD')),
-    -- CSV column mapping, remembered per card
-    date_col        TEXT,
-    description_col TEXT,
+    signature       TEXT NOT NULL,  -- header row (or column count) used to auto-match files
+    date_col        TEXT NOT NULL,
+    description_col TEXT NOT NULL,
     amount_col      TEXT,           -- single signed amount column, or
     debit_col       TEXT,           -- separate debit / credit columns
     credit_col      TEXT,
     date_format     TEXT,           -- strptime format, e.g. %Y-%m-%d
     charges_positive INTEGER NOT NULL DEFAULT 1,  -- 1 if purchases appear as positive numbers
     has_header      INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS accounts (
+    id              INTEGER PRIMARY KEY,
+    name            TEXT NOT NULL UNIQUE,
+    currency        TEXT NOT NULL CHECK (currency IN ('CAD', 'USD')),
+    last_format_id  INTEGER REFERENCES csv_formats(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS import_batches (

@@ -11,6 +11,15 @@
   <input type="hidden" name="account_id" value="{{ account.id }}">
   <input type="hidden" name="filename" value="{{ filename }}">
   <textarea name="csv_text" hidden>{{ csv_text }}</textarea>
+  {% if note %}<p class="ok">{{ note }}</p>{% endif %}
+  <div class="grid">
+    <div><label>Save as format</label><input name="format_name" value="{{ format_name }}" required placeholder="e.g. TD (no header)"></div>
+    {% if formats %}
+    <div><label>…or load a saved format</label>
+      <select name="load_format_id">{% for f in formats %}<option value="{{ f.id }}" {% if f.name == format_name %}selected{% endif %}>{{ f.name }}</option>{% endfor %}</select>
+      <button name="action" value="load" class="secondary">Load</button></div>
+    {% endif %}
+  </div>
   <div class="grid">
     <div><label>First row is a header</label>
       <select name="has_header"><option value="1" {% if mapping.has_header %}selected{% endif %}>Yes</option><option value="0" {% if not mapping.has_header %}selected{% endif %}>No</option></select></div>

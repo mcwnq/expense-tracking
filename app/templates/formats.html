@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Saved CSV formats</h1>
+<p class="muted">Formats are created when you import. A file is matched to a format by its header row (or column count if it has no header). Several cards can share one format, and a card can use more than one.</p>
+{% if formats %}
+<table>
+  <tr><th>Name</th><th>Header</th><th>Columns</th><th>Last used by</th><th></th></tr>
+  {% for f in formats %}
+  <tr>
+    <td><form class="inline" method="post" action="/formats/{{ f.id }}/rename"><input name="name" value="{{ f.name }}"> <button class="secondary">Rename</button></form></td>
+    <td>{{ "Yes" if f.has_header else "No" }}</td>
+    <td class="muted">date: {{ f.date_col }} · description: {{ f.description_col }} ·
+      {% if f.amount_col %}amount: {{ f.amount_col }} ({{ "purchases +" if f.charges_positive else "purchases −" }}){% else %}debit: {{ f.debit_col }} / credit: {{ f.credit_col or "—" }}{% endif %}</td>
+    <td>{{ f.cards or "" }}</td>
+    <td><form class="inline" method="post" action="/formats/{{ f.id }}/delete" onsubmit="return confirm('Delete this format? Imported transactions are kept.')"><button class="link">Delete</button></form></td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p>No formats yet. <a href="/import">Import a CSV</a> to create one.</p>
+{% endif %}
+{% endblock %}

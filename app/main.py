@@ -66,8 +66,12 @@ def create_app(db_path: Path | str | None = None, fetcher: fx.Fetcher | None = f
     async def import_preview(request: Request, account_id: int = Form(...), file: UploadFile = Form(...)):
         text = (await file.read()).decode("utf-8-sig", errors="replace")
         account = get_account(account_id)
-        mapping = importer.Mapping.from_account(account) if account["date_col"] else importer.guess_mapping(text)
-        return _preview(request, account, text, file.filename or "upload.csv", mapping)
+        fmt = importer.match_format(conn, text, prefer_id=account["last_format_id"])
+        if fmt:
+            mapping, name, note = importer.Mapping.from_row(fmt), fmt["name"], f"Matched saved format \u201c{fmt['name']}\u201d."
+        else:
+            mapping, name, note = importer.guess_mapping(text), f"{account['name']} format", None
+        return _preview(request, account, text, file.filename or "upload.csv", mapping, name, note)
 
     @app.post("/import/confirm", response_class=HTMLResponse)
     def import_confirm(
@@ -83,9 +87,14 @@ def create_app(db_path: Path | str | None = None, fetcher: fx.Fetcher | None = f
         date_format: str = Form(""),
         charges_positive: int = Form(1),
         has_header: int = Form(1),
+        format_name: str = Form(""),
+        load_format_id: int | None = Form(None),
         action: str = Form("import"),
     ):
         account = get_account(account_id)
+        if action == "load" and load_format_id:
+            fmt = conn.execute("SELECT * FROM csv_formats WHERE id = ?", (load_format_id,)).fetchone()
+            return _preview(request, account, csv_text, filename, importer.Mapping.from_row(fmt), fmt["name"])
         mapping = importer.Mapping(
             date_col=date_col,
             description_col=description_col,
@@ -97,34 +106,23 @@ def create_app(db_path: Path | str | None = None, fetcher: fx.Fetcher | None = f
             has_header=bool(has_header),
         )
         if action == "preview":
-            return _preview(request, account, csv_text, filename, mapping)
+            return _preview(request, account, csv_text, filename, mapping, format_name)
+        if not format_name.strip():
+            return _preview(request, account, csv_text, filename, mapping, format_name, error="Give the format a name.")
         try:
             rows = importer.parse(csv_text, mapping)
         except importer.CsvFormatError as e:
-            return _preview(request, account, csv_text, filename, mapping, error=str(e))
+            return _preview(request, account, csv_text, filename, mapping, format_name, error=str(e))
 
-        conn.execute(
-            "UPDATE accounts SET date_col=?, description_col=?, amount_col=?, debit_col=?, credit_col=?, "
-            "date_format=?, charges_positive=?, has_header=? WHERE id=?",
-            (
-                mapping.date_col,
-                mapping.description_col,
-                mapping.amount_col,
-                mapping.debit_col,
-                mapping.credit_col,
-                mapping.date_format,
-                int(mapping.charges_positive),
-                int(mapping.has_header),
-                account_id,
-            ),
-        )
+        format_id = importer.save_format(conn, format_name, mapping, csv_text)
+        conn.execute("UPDATE accounts SET last_format_id = ? WHERE id = ?", (format_id, account_id))
         added, skipped = importer.save(conn, account, rows, filename)
         missing = fx.fill_missing_cad(conn, fetcher) if account["currency"] == "USD" else 0
         return render(
             request, "imported.html", account=account, added=added, skipped=skipped, missing=missing
         )
 
-    def _preview(request, account, text, filename, mapping, error=None):
+    def _preview(request, account, text, filename, mapping, format_name, note=None, error=None):
         header, _ = importer.read_rows(text, mapping.has_header)
         rows, parse_error = [], error
         if not parse_error:
@@ -145,6 +143,9 @@ def create_app(db_path: Path | str | None = None, fetcher: fx.Fetcher | None = f
             total_cents=sum(r.amount_cents for r in rows),
             error=parse_error,
             date_formats=importer.DATE_FORMATS,
+            format_name=format_name,
+            note=note,
+            formats=conn.execute("SELECT id, name FROM csv_formats ORDER BY name").fetchall(),
         )
 
     @app.get("/transactions", response_class=HTMLResponse)
@@ -179,6 +180,26 @@ def create_app(db_path: Path | str | None = None, fetcher: fx.Fetcher | None = f
             month=month,
             total_cad=total_cad,
         )
+
+    @app.get("/formats", response_class=HTMLResponse)
+    def formats(request: Request):
+        rows = conn.execute(
+            "SELECT f.*, GROUP_CONCAT(a.name, ', ') AS cards FROM csv_formats f "
+            "LEFT JOIN accounts a ON a.last_format_id = f.id GROUP BY f.id ORDER BY f.name"
+        ).fetchall()
+        return render(request, "formats.html", formats=rows)
+
+    @app.post("/formats/{format_id}/rename")
+    def rename_format(format_id: int, name: str = Form(...)):
+        conn.execute("UPDATE OR IGNORE csv_formats SET name = ? WHERE id = ?", (name.strip(), format_id))
+        conn.commit()
+        return RedirectResponse("/formats", status_code=303)
+
+    @app.post("/formats/{format_id}/delete")
+    def delete_format(format_id: int):
+        conn.execute("DELETE FROM csv_formats WHERE id = ?", (format_id,))
+        conn.commit()
+        return RedirectResponse("/formats", status_code=303)
 
     @app.post("/fx/refresh")
     def refresh_fx():

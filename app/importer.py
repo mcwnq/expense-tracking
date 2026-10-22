@@ -1,8 +1,10 @@
-"""Credit card CSV import with a per-card column mapping.
+"""Credit card CSV import using saved, named CSV formats.
 
 Banks export CSVs in different shapes: some have one signed amount column,
 others split debits and credits; some have no header row at all (TD, for
-example). The mapping stored on each account says where to find each field.
+example). A saved format says where to find each field. Formats are shared:
+several cards can use one, and a card can use several. An uploaded file is
+matched to a format by its header row (or column count when headerless).
 Without a header, columns are referred to by 1-based position ("1", "2", ...).
 """
 
@@ -49,7 +51,7 @@ class Mapping:
     has_header: bool = True
 
     @classmethod
-    def from_account(cls, row: sqlite3.Row) -> "Mapping":
+    def from_row(cls, row: sqlite3.Row) -> "Mapping":
         return cls(
             date_col=row["date_col"],
             description_col=row["description_col"],
@@ -99,6 +101,57 @@ def looks_like_header(text: str) -> bool:
     return not any(guess_date_format([c]) for c in first) and not any(
         _try_amount(c) is not None for c in first
     )
+
+
+def signature(text: str, has_header: bool) -> str:
+    """Fingerprint used to match a file to a saved format."""
+    header, _ = read_rows(text, has_header)
+    if has_header:
+        return "|".join(h.lower() for h in header)
+    return f"cols:{len(header)}"
+
+
+def match_format(
+    conn: sqlite3.Connection, text: str, prefer_id: int | None = None
+) -> sqlite3.Row | None:
+    """Saved format whose header (or column count) matches the file.
+    If several match, prefer_id (the card's last-used format) wins."""
+    candidates = {signature(text, True), signature(text, False)}
+    matches = [
+        f
+        for f in conn.execute("SELECT * FROM csv_formats ORDER BY name")
+        if f["signature"] in candidates
+        and (f["has_header"] or not looks_like_header(text))
+    ]
+    for f in matches:
+        if f["id"] == prefer_id:
+            return f
+    return matches[0] if matches else None
+
+
+def save_format(conn: sqlite3.Connection, name: str, m: Mapping, text: str) -> int:
+    """Create or update the named format. Returns its id."""
+    values = (
+        signature(text, m.has_header),
+        m.date_col,
+        m.description_col,
+        m.amount_col,
+        m.debit_col,
+        m.credit_col,
+        m.date_format,
+        int(m.charges_positive),
+        int(m.has_header),
+    )
+    conn.execute(
+        "INSERT INTO csv_formats (signature, date_col, description_col, amount_col, debit_col, "
+        "credit_col, date_format, charges_positive, has_header, name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(name) DO UPDATE SET signature=excluded.signature, date_col=excluded.date_col, "
+        "description_col=excluded.description_col, amount_col=excluded.amount_col, "
+        "debit_col=excluded.debit_col, credit_col=excluded.credit_col, date_format=excluded.date_format, "
+        "charges_positive=excluded.charges_positive, has_header=excluded.has_header",
+        (*values, name.strip()),
+    )
+    return conn.execute("SELECT id FROM csv_formats WHERE name = ?", (name.strip(),)).fetchone()["id"]
 
 
 def guess_mapping(text: str) -> Mapping:

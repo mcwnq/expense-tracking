@@ -20,3 +20,4 @@ input, select, button { font:inherit; padding:5px 8px; }
 button { background:var(--accent); color:#fff; border:0; cursor:pointer; }
 button.secondary { background:#fff; color:var(--accent); border:1px solid var(--accent); }
 button.link { background:none; color:var(--bad); padding:0; }
+.ok { color:#1d5b33; font-weight:600; }
