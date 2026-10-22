@@ -49,3 +49,8 @@ def test_formats_shared_across_cards_and_several_per_card(tmp_path):
     # a different card reuses the same format
     r = client.post("/import/preview", data={"account_id": 2}, files={"file": ("c.csv", TD, "text/csv")})
     assert 'value="TD style"' in r.text and "Matched" in r.text
+
+
+def test_transactions_filter_all(tmp_path):
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=None))
+    assert client.get("/transactions?account_id=&month=").status_code == 200

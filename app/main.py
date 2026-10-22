@@ -149,7 +149,9 @@ def create_app(db_path: Path | str | None = None, fetcher: fx.Fetcher | None = f
         )
 
     @app.get("/transactions", response_class=HTMLResponse)
-    def transactions(request: Request, account_id: int | None = None, month: str | None = None):
+    def transactions(request: Request, account_id: str = "", month: str = ""):
+        # The filter form sends empty strings for "All"
+        account_id = int(account_id) if account_id.isdigit() else None
         sql = (
             "SELECT t.*, a.name AS account FROM transactions t JOIN accounts a ON a.id = t.account_id WHERE 1=1"
         )
