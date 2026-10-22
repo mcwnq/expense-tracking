@@ -63,6 +63,13 @@ CREATE TABLE IF NOT EXISTS vendor_rules (
     vendor_id INTEGER NOT NULL REFERENCES vendors(id) ON DELETE CASCADE
 );
 
+-- How USD converts to CAD for a tax year. No row = daily rates.
+CREATE TABLE IF NOT EXISTS tax_years (
+    year        INTEGER PRIMARY KEY,
+    fx_method   TEXT NOT NULL DEFAULT 'daily' CHECK (fx_method IN ('daily', 'annual')),
+    annual_rate TEXT              -- Bank of Canada annual average USD->CAD, decimal string
+);
+
 CREATE TABLE IF NOT EXISTS fx_rates (
     rate_date TEXT PRIMARY KEY,          -- ISO date of the Bank of Canada observation
     usd_cad   TEXT NOT NULL,             -- decimal string

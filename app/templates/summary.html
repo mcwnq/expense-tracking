@@ -18,6 +18,17 @@
   <div class="kpi"><div class="label">One-time · {{ s.count_for("one-time") }} vendors</div><div class="value">${{ s.total_for("one-time")|money }}</div></div>
   <div class="kpi {% if unassigned %}attention{% endif %}"><div class="label">Need a vendor</div><div class="value">{{ unassigned|length }}</div>{% if unassigned %}<a href="#unassigned" style="color:inherit">Assign them</a>{% endif %}</div>
 </div>
+<form class="card" method="post" action="/tax-years/{{ s.year }}/fx" style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end">
+  <div><label>USD → CAD for {{ s.year }}</label>
+    <select name="method">
+      <option value="daily" {% if fx_method == "daily" %}selected{% endif %}>Daily Bank of Canada rate</option>
+      <option value="annual" {% if fx_method == "annual" %}selected{% endif %}>Annual average rate</option>
+    </select></div>
+  <div><label>Annual average (blank = fetch from Bank of Canada)</label><input name="annual_rate" value="{{ annual_rate or '' }}" placeholder="e.g. 1.3698" size="12"></div>
+  <button class="secondary">Apply</button>
+  {% if fx_method == "annual" %}<span class="muted">All USD amounts in {{ s.year }} use {{ annual_rate }}.</span>{% endif %}
+  {% if fx_error %}<span class="error">{{ fx_error }}</span>{% endif %}
+</form>
 {% if unconverted %}<p class="warn">{{ unconverted }} USD transaction(s) this year have no CAD amount yet and aren't counted. Use "Fetch rates now" on the Cards page.</p>{% endif %}
 
 <div class="toolbar">

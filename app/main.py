@@ -4,6 +4,7 @@ import csv
 import io
 from datetime import date
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import FastAPI, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -22,7 +23,11 @@ def cents(value: int | None) -> str:
     return f"{sign}{abs(value) / 100:,.2f}"
 
 
-def create_app(db_path: Path | str | None = None, fetcher: fx.Fetcher | None = fx.fetch_boc) -> FastAPI:
+def create_app(
+    db_path: Path | str | None = None,
+    fetcher: fx.Fetcher | None = fx.fetch_boc,
+    annual_fetcher=fx.fetch_boc_annual,
+) -> FastAPI:
     app = FastAPI(title="Trader Expense Tracker")
     conn = db.connect(db_path)
     templates = Jinja2Templates(directory=HERE / "templates")
@@ -215,8 +220,9 @@ def create_app(db_path: Path | str | None = None, fetcher: fx.Fetcher | None = f
         return known[0] if known else date.today().year
 
     @app.get("/summary", response_class=HTMLResponse)
-    def summary(request: Request, year: int | None = None, show: str = ""):
+    def summary(request: Request, year: int | None = None, show: str = "", fx_error: str = ""):
         year = pick_year(year)
+        fx_method, annual_rate = fx.year_setting(conn, year)
         only = show if show in ("recurring", "one-time") else None
         return render(
             request,
@@ -226,6 +232,9 @@ def create_app(db_path: Path | str | None = None, fetcher: fx.Fetcher | None = f
             years=vendors.years(conn) or [year],
             unassigned=vendors.unassigned(conn, year),
             year_end=vendors.year_end_check(conn, year),
+            fx_method=fx_method,
+            annual_rate=annual_rate,
+            fx_error=fx_error,
             all_vendors=conn.execute("SELECT * FROM vendors ORDER BY name").fetchall(),
             categories=vendors.CATEGORIES,
             suggest=vendors.suggest_pattern,
@@ -234,6 +243,20 @@ def create_app(db_path: Path | str | None = None, fetcher: fx.Fetcher | None = f
                 (str(year),),
             ).fetchone()[0],
         )
+
+    @app.post("/tax-years/{year}/fx")
+    def set_fx_method(year: int, method: str = Form(...), annual_rate: str = Form("")):
+        rate = annual_rate.strip() or None
+        if method == "annual" and not rate and annual_fetcher:
+            try:
+                rate = annual_fetcher(year)
+            except OSError:
+                rate = None
+        if method == "annual" and not rate:
+            msg = "The Bank of Canada annual rate isn't available yet; type it in."
+            return RedirectResponse(f"/summary?year={year}&fx_error={quote(msg)}", status_code=303)
+        fx.set_year_method(conn, year, method, rate, fetcher)
+        return RedirectResponse(f"/summary?year={year}", status_code=303)
 
     @app.get("/summary.csv")
     def summary_csv(year: int | None = None):

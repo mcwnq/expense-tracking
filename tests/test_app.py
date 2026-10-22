@@ -73,3 +73,21 @@ def test_summary_and_assign(tmp_path):
 def test_transactions_filter_all(tmp_path):
     client = TestClient(create_app(tmp_path / "t.db", fetcher=None))
     assert client.get("/transactions?account_id=&month=").status_code == 200
+
+
+def test_annual_average_rate(tmp_path):
+    daily = lambda s, e: {"2026-03-02": "1.35"}
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=daily, annual_fetcher=lambda y: None))
+    client.post("/accounts", data={"name": "USD", "currency": "USD"})
+    data = "Date,Description,Amount\n2026-03-02,NINJATRADER,100.00\n"
+    client.post("/import/confirm", data={"account_id": 1, "filename": "a.csv", "csv_text": data, "date_col": "Date",
+                "description_col": "Description", "amount_col": "Amount", "charges_positive": 1, "has_header": 1,
+                "format_name": "x"})
+    assert "135.00" in client.get("/summary?year=2026").text
+
+    r = client.post("/tax-years/2026/fx", data={"method": "annual", "annual_rate": ""})
+    assert "isn" in r.text and "available yet" in r.text   # no published rate, nothing changed
+    r = client.post("/tax-years/2026/fx", data={"method": "annual", "annual_rate": "1.40"})
+    assert "140.00" in r.text and "use 1.40" in r.text
+    r = client.post("/tax-years/2026/fx", data={"method": "daily", "annual_rate": ""})
+    assert "135.00" in r.text
