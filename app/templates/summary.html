@@ -48,6 +48,30 @@
 </table>
 </div>
 
+{% if year_end %}
+<h2 id="year-end">Year-end check</h2>
+<p class="muted">Card dates are often in UTC, so a charge made on the evening of Dec 31 can show as Jan 1. Move any that belong to the previous tax year. USD amounts are re-converted at the new date's rate.</p>
+<table>
+  <tr><th>Card date</th><th>Counts in</th><th>Card</th><th>Description</th><th>Vendor</th><th class="num">CAD</th><th></th></tr>
+  {% for t in year_end %}
+  {% set prev_dec31 = (t.txn_date[:4]|int - 1)|string ~ "-12-31" %}
+  <tr>
+    <td>{{ t.txn_date }}</td><td>{{ t.tax_date }}</td><td>{{ t.account }}</td><td>{{ t.description }}</td><td>{{ t.vendor or "" }}</td><td class="num">{{ t.cad_cents|money }}</td>
+    <td>
+      <form class="inline" method="post" action="/transactions/{{ t.id }}/tax-date">
+        <input type="hidden" name="back" value="/summary?year={{ s.year }}#year-end">
+        {% if t.tax_date == t.txn_date %}
+          <input type="hidden" name="tax_date" value="{{ prev_dec31 }}"><button class="secondary">Move to {{ prev_dec31 }}</button>
+        {% else %}
+          <input type="hidden" name="tax_date" value="{{ t.txn_date }}"><button class="secondary">Undo</button>
+        {% endif %}
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
 {% if unassigned %}
 <h2 id="unassigned">Transactions that need a vendor</h2>
 <p class="muted">Pick a vendor, create one, or mark it personal. This saves a rule (the text to match), so future imports are assigned automatically.</p>
@@ -55,7 +79,7 @@
   <tr><th>Date</th><th>Card</th><th>Description</th><th class="num">CAD</th><th>Assign</th></tr>
   {% for t in unassigned %}
   <tr>
-    <td>{{ t.txn_date }}</td><td>{{ t.account }}</td><td>{{ t.description }}</td><td class="num">{{ t.cad_cents|money }}</td>
+    <td>{{ t.tax_date }}</td><td>{{ t.account }}</td><td>{{ t.description }}</td><td class="num">{{ t.cad_cents|money }}</td>
     <td>
       <form method="post" action="/assign" style="display:flex; flex-wrap:wrap; gap:6px; align-items:center">
         <input type="hidden" name="back" value="/summary?year={{ s.year }}#unassigned">

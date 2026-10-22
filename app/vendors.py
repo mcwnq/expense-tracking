@@ -174,10 +174,10 @@ def summary(conn: sqlite3.Connection, year: int, only: str | None = None) -> Sum
     categories and unassigned transactions are left out (see unassigned()).
     """
     rows = conn.execute(
-        "SELECT v.id, v.name, v.category, v.recurrence, CAST(substr(t.txn_date, 6, 2) AS INTEGER) AS m, "
+        "SELECT v.id, v.name, v.category, v.recurrence, CAST(substr(t.tax_date, 6, 2) AS INTEGER) AS m, "
         "SUM(t.cad_cents) AS cents, SUM(CASE WHEN t.amount_cents > 0 THEN 1 ELSE 0 END) AS charges "
         "FROM transactions t JOIN vendors v ON v.id = t.vendor_id "
-        "WHERE substr(t.txn_date, 1, 4) = ? AND t.cad_cents IS NOT NULL "
+        "WHERE substr(t.tax_date, 1, 4) = ? AND t.cad_cents IS NOT NULL "
         "GROUP BY v.id, m",
         (str(year),),
     ).fetchall()
@@ -213,10 +213,33 @@ def summary(conn: sqlite3.Connection, year: int, only: str | None = None) -> Sum
 def unassigned(conn: sqlite3.Connection, year: int) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT t.*, a.name AS account FROM transactions t JOIN accounts a ON a.id = t.account_id "
-        "WHERE t.vendor_id IS NULL AND substr(t.txn_date, 1, 4) = ? ORDER BY t.txn_date",
+        "WHERE t.vendor_id IS NULL AND substr(t.tax_date, 1, 4) = ? ORDER BY t.tax_date",
         (str(year),),
     ).fetchall()
 
 
 def years(conn: sqlite3.Connection) -> list[int]:
-    return [int(r[0]) for r in conn.execute("SELECT DISTINCT substr(txn_date, 1, 4) FROM transactions ORDER BY 1 DESC")]
+    return [int(r[0]) for r in conn.execute("SELECT DISTINCT substr(tax_date, 1, 4) FROM transactions ORDER BY 1 DESC")]
+
+
+def year_end_check(conn: sqlite3.Connection, year: int) -> list[sqlite3.Row]:
+    """Charges with a card date of Jan 1-2 at either end of the tax year. Card dates
+    are often UTC, so some of these were really made on Dec 31 of the year before."""
+    days = [f"{y}-01-0{d}" for y in (year, year + 1) for d in (1, 2)]
+    return conn.execute(
+        "SELECT t.*, a.name AS account, v.name AS vendor FROM transactions t "
+        "JOIN accounts a ON a.id = t.account_id LEFT JOIN vendors v ON v.id = t.vendor_id "
+        f"WHERE t.txn_date IN ({','.join('?' * len(days))}) AND t.amount_cents > 0 ORDER BY t.txn_date",
+        days,
+    ).fetchall()
+
+
+def set_tax_date(conn: sqlite3.Connection, txn_id: int, tax_date: str) -> None:
+    """Change the date a transaction counts on. USD amounts are re-converted at that date's rate."""
+    conn.execute(
+        "UPDATE transactions SET tax_date = ?, "
+        "fx_rate = CASE WHEN currency = 'USD' THEN NULL ELSE fx_rate END, "
+        "cad_cents = CASE WHEN currency = 'USD' THEN NULL ELSE cad_cents END WHERE id = ?",
+        (tax_date, txn_id),
+    )
+    conn.commit()

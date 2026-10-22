@@ -12,10 +12,16 @@
 </form>
 <p class="muted">{{ rows|length }} transactions · net {{ total_cad|money }} CAD</p>
 <table>
-  <tr><th>Date</th><th>Card</th><th>Description</th><th>Vendor</th><th class="num">Amount</th><th>Cur</th><th class="num">USD→CAD</th><th class="num">CAD</th></tr>
+  <tr><th>Card date</th><th>Counts on <span class="muted" title="The date used for the tax year, month and USD rate. Change it if the card date is off (e.g. UTC).">ⓘ</span></th><th>Card</th><th>Description</th><th>Vendor</th><th class="num">Amount</th><th>Cur</th><th class="num">USD→CAD</th><th class="num">CAD</th></tr>
   {% for t in rows %}
   <tr>
-    <td>{{ t.txn_date }}</td><td>{{ t.account }}</td><td>{{ t.description }}</td><td>{{ t.vendor or "" }}</td>
+    <td>{{ t.txn_date }}</td>
+    <td><form class="inline" method="post" action="/transactions/{{ t.id }}/tax-date">
+      <input type="hidden" name="back" value="/transactions?account_id={{ account_id or '' }}&month={{ month or '' }}">
+      <input type="date" name="tax_date" value="{{ t.tax_date }}" aria-label="Date this counts on" onchange="this.form.submit()"
+        {% if t.tax_date != t.txn_date %}style="border-color:#a65d00"{% endif %}>
+    </form></td>
+    <td>{{ t.account }}</td><td>{{ t.description }}</td><td>{{ t.vendor or "" }}</td>
     <td class="num">{{ t.amount_cents|money }}</td><td>{{ t.currency }}</td>
     <td class="num">{{ t.fx_rate or "" }}</td>
     <td class="num {% if t.cad_cents is none %}warn{% endif %}">{{ t.cad_cents|money }}</td>

@@ -165,15 +165,15 @@ def create_app(db_path: Path | str | None = None, fetcher: fx.Fetcher | None = f
             sql += " AND t.account_id = ?"
             args.append(account_id)
         if month:
-            sql += " AND substr(t.txn_date, 1, 7) = ?"
+            sql += " AND substr(t.tax_date, 1, 7) = ?"
             args.append(month)
-        sql += " ORDER BY t.txn_date DESC, t.id DESC"
+        sql += " ORDER BY t.tax_date DESC, t.id DESC"
         rows = conn.execute(sql, args).fetchall()
         accounts = conn.execute("SELECT * FROM accounts ORDER BY name").fetchall()
         months = [
             r[0]
             for r in conn.execute(
-                "SELECT DISTINCT substr(txn_date, 1, 7) FROM transactions ORDER BY 1 DESC"
+                "SELECT DISTINCT substr(tax_date, 1, 7) FROM transactions ORDER BY 1 DESC"
             )
         ]
         total_cad = sum(r["cad_cents"] or 0 for r in rows)
@@ -225,11 +225,12 @@ def create_app(db_path: Path | str | None = None, fetcher: fx.Fetcher | None = f
             show=show,
             years=vendors.years(conn) or [year],
             unassigned=vendors.unassigned(conn, year),
+            year_end=vendors.year_end_check(conn, year),
             all_vendors=conn.execute("SELECT * FROM vendors ORDER BY name").fetchall(),
             categories=vendors.CATEGORIES,
             suggest=vendors.suggest_pattern,
             unconverted=conn.execute(
-                "SELECT COUNT(*) FROM transactions WHERE cad_cents IS NULL AND substr(txn_date, 1, 4) = ?",
+                "SELECT COUNT(*) FROM transactions WHERE cad_cents IS NULL AND substr(tax_date, 1, 4) = ?",
                 (str(year),),
             ).fetchone()[0],
         )
@@ -250,6 +251,12 @@ def create_app(db_path: Path | str | None = None, fetcher: fx.Fetcher | None = f
             media_type="text/csv",
             headers={"Content-Disposition": f'attachment; filename="expenses-{s.year}.csv"'},
         )
+
+    @app.post("/transactions/{txn_id}/tax-date")
+    def change_tax_date(txn_id: int, tax_date: date = Form(...), back: str = Form("/transactions")):
+        vendors.set_tax_date(conn, txn_id, tax_date.isoformat())
+        fx.fill_missing_cad(conn, fetcher)
+        return RedirectResponse(back, status_code=303)
 
     @app.post("/assign")
     def assign(

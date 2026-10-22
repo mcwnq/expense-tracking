@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     id           INTEGER PRIMARY KEY,
     account_id   INTEGER NOT NULL REFERENCES accounts(id),
     batch_id     INTEGER REFERENCES import_batches(id) ON DELETE CASCADE,
-    txn_date     TEXT NOT NULL,          -- ISO yyyy-mm-dd
+    txn_date     TEXT NOT NULL,          -- ISO yyyy-mm-dd, as printed on the statement
     description  TEXT NOT NULL,
     amount_cents INTEGER NOT NULL,       -- original currency; positive = expense, negative = refund/payment
     currency     TEXT NOT NULL,
@@ -92,4 +92,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
         seed_defaults(conn)
         apply_rules(conn)
         conn.execute("PRAGMA user_version = 1")
+    if version < 2:
+        # The date that counts for tax year, month and FX rate. Starts as the card
+        # date; editable because card dates are often UTC, so a late-evening charge
+        # on Dec 31 can post as Jan 1.
+        conn.execute("ALTER TABLE transactions ADD COLUMN tax_date TEXT")
+        conn.execute("UPDATE transactions SET tax_date = txn_date")
+        conn.execute("PRAGMA user_version = 2")
     conn.commit()

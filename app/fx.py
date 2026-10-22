@@ -76,14 +76,14 @@ def fill_missing_cad(conn: sqlite3.Connection, fetcher: Fetcher | None = fetch_b
     number of transactions still lacking a rate (e.g. when offline).
     """
     rows = conn.execute(
-        "SELECT id, txn_date, amount_cents FROM transactions "
+        "SELECT id, tax_date, amount_cents FROM transactions "
         "WHERE currency = 'USD' AND cad_cents IS NULL"
     ).fetchall()
     if not rows:
         return 0
 
     if fetcher is not None:
-        dates = [date.fromisoformat(r["txn_date"]) for r in rows]
+        dates = [date.fromisoformat(r["tax_date"]) for r in rows]
         try:
             ensure_rates(conn, min(dates), max(dates), fetcher)
         except OSError:
@@ -91,7 +91,7 @@ def fill_missing_cad(conn: sqlite3.Connection, fetcher: Fetcher | None = fetch_b
 
     missing = 0
     for r in rows:
-        rate = _cached_rate(conn, date.fromisoformat(r["txn_date"]))
+        rate = _cached_rate(conn, date.fromisoformat(r["tax_date"]))
         if rate is None:
             missing += 1
             continue
