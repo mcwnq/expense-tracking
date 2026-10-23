@@ -136,14 +136,15 @@ def test_include_all_and_card_default(tmp_path):
     assert "OTHER SHOP" in r.text and "GROCERY STORE" not in r.text and "MYSTERY SHOP" not in r.text
 
     r = client.get("/transactions?account_id=1&month=")
-    assert "0 included" in r.text and 'aria-label="Include all shown transactions">' in r.text
+    assert "0 included" in r.text and "Include all 2 shown" in r.text and 'name="ids" value="2,1"' in r.text
 
     # include all TD lines, then the "needs a vendor" list picks them up
-    r = client.post("/transactions/include-all", data={"account_id": "1", "month": "", "included": 1})
+    back = "/transactions?account_id=1&month="
+    r = client.post("/transactions/set-included", data={"ids": "2,1", "included": 1, "back": back})
     assert "2 included" in r.text
     assert "GROCERY STORE" in client.get("/summary?year=2026").text
-    # include-all only touched the filtered card
-    client.post("/transactions/include-all", data={"account_id": "1", "month": "", "included": 0})
+    # only the lines shown were touched
+    client.post("/transactions/set-included", data={"ids": "2,1", "included": 0, "back": back})
     assert "1 included" in client.get("/transactions?account_id=&month=").text
 
 
@@ -241,3 +242,33 @@ def test_migration_records_batch_signatures(tmp_path):
     conn.close()
     conn = db.connect(path)
     assert conn.execute("SELECT signature FROM import_batches").fetchone()[0] == "date|description|amount"
+
+
+def test_search_merchant_view_and_grouped_needs_vendor(tmp_path):
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=None))
+    client.post("/accounts", data={"name": "TD", "currency": "CAD"})
+    data = ("Date,Description,Amount\n2026-03-02,GROCERY STORE #12,50.00\n2026-04-02,GROCERY STORE #40,30.00\n"
+            "2026-03-05,TOPSTEP COMBINE,165.00\n2026-03-07,COFFEE HUT,4.00\n")
+    client.post("/import/confirm", data={"account_id": 1, "filename": "a.csv", "csv_text": data, "date_col": "Date",
+                "description_col": "Description", "amount_col": "Amount", "charges_positive": 1, "has_header": 1,
+                "format_name": "x"})
+
+    # search and filter
+    r = client.get("/transactions?q=grocery")
+    assert "GROCERY STORE #12" in r.text and "TOPSTEP COMBINE" not in r.text and "Include all 2 shown" in r.text
+    r = client.get("/transactions?q=topstep")  # matches the vendor too
+    assert "TOPSTEP COMBINE" in r.text
+
+    # by-merchant view: one row per merchant, one tick excludes all its lines
+    r = client.get("/transactions?view=merchants")
+    assert "GROCERY STORE" in r.text and "2 of 2" in r.text and "Topstep" in r.text
+    assert 'aria-label="Include all 2 lines from GROCERY STORE"' in r.text
+    client.post("/transactions/set-included", data={"ids": "1,2", "included": 0, "back": "/transactions?view=merchants"})
+    r = client.get("/transactions?show=excluded")
+    assert "GROCERY STORE #12" in r.text and "GROCERY STORE #40" in r.text and "COFFEE HUT" not in r.text
+
+    # bring them back; the summary groups lines needing a vendor with one Exclude for the group
+    client.post("/transactions/set-included", data={"ids": "1,2", "included": 1, "back": "/"})
+    r = client.get("/summary?year=2026")
+    assert "Exclude all 2 lines" in r.text and 'name="ids" value="1,2"' in r.text and "Exclude this line" in r.text
+    assert r.text.count('value="GROCERY STORE"') == 1

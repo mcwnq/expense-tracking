@@ -7,7 +7,7 @@
     <p class="muted" style="margin:4px 0 0">Grouped by vendor, all amounts in CAD. Personal spending and card payments are left out.</p>
   </div>
   <form method="get" style="display:flex; gap:8px; align-items:flex-end">
-    <div><label>Tax year</label><select name="year" onchange="this.form.submit()">{% for y in years %}<option {% if y == s.year %}selected{% endif %}>{{ y }}</option>{% endfor %}</select></div>
+    <div><label>Tax year</label><select name="year" onchange="this.form.requestSubmit()">{% for y in years %}<option {% if y == s.year %}selected{% endif %}>{{ y }}</option>{% endfor %}</select></div>
     <a href="/summary.csv?year={{ s.year }}">Export CSV</a>
   </form>
 </div>
@@ -91,16 +91,27 @@
 
 {% if unassigned %}
 <h2 id="unassigned">Transactions that need a vendor</h2>
-<p class="muted">Pick or create a vendor; this saves a rule (the text to match) so future imports are assigned automatically. If a line isn't a business expense, exclude just that line. To exclude a whole merchant, give it the category "Personal (exclude)".</p>
-<table>
-  <tr><th>Date</th><th>Card</th><th>Description</th><th class="num">CAD</th><th>Assign</th></tr>
-  {% for t in unassigned %}
+<p class="muted">Lines are grouped by the start of their description. Pick or create a vendor for a group; this saves a rule (the text to match) so the whole group and future imports are assigned automatically. If a group isn't business, exclude all its lines, or save it under a vendor with the category "Personal (exclude)" so future charges are left out too.</p>
+<table class="groups">
+  <tr><th>Merchant</th><th class="num">Lines</th><th class="num">CAD</th><th>Assign</th></tr>
+  {% for g in unassigned_groups %}
   <tr>
-    <td>{{ t.tax_date }}</td><td>{{ t.account }}</td><td>{{ t.description }}</td><td class="num">{{ t.cad_cents|money }}</td>
+    <td>{{ g.label }}
+      <details><summary class="muted">{% if g.n > 1 %}Show {{ g.n }} lines, {{ g.first }} to {{ g.last }}{% else %}{{ g.sample }}, {{ g.first }}{% endif %}</summary>
+        <table class="lines">
+          {% for t in unassigned if t.id in g.ids %}
+          <tr><td>{{ t.tax_date }}</td><td>{{ t.account }}</td><td>{{ t.description }}</td><td class="num">{{ t.cad_cents|money }}</td>
+            <td><form class="inline" method="post" action="/transactions/{{ t.id }}/exclude">
+              <input type="hidden" name="excluded" value="1"><input type="hidden" name="back" value="/summary?year={{ s.year }}">
+              <button class="link" title="Leave just this line out of business expenses">Exclude</button></form></td></tr>
+          {% endfor %}
+        </table>
+      </details></td>
+    <td class="num">{{ g.n }}</td><td class="num">{{ g.cad_cents|money }}</td>
     <td>
       <form method="post" action="/assign" style="display:flex; flex-wrap:wrap; gap:6px; align-items:center">
-        <input type="hidden" name="back" value="/summary?year={{ s.year }}#unassigned">
-        <input name="pattern" value="{{ suggest(t.description) }}" size="14" title="Text to match in the description" aria-label="Match text">
+        <input type="hidden" name="back" value="/summary?year={{ s.year }}">
+        <input name="pattern" value="{{ g.label }}" size="14" title="Text to match in the description" aria-label="Match text">
         <select name="vendor_id" aria-label="Vendor" onchange="this.form.querySelector('.newv').hidden = this.value !== 'new'">
           <option value="new">New vendor…</option>
           {% for v in all_vendors %}<option value="{{ v.id }}">{{ v.name }}</option>{% endfor %}
@@ -109,9 +120,10 @@
           <select name="category" aria-label="Category">{% for c in categories %}<option {% if c == "Other business" %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></span>
         <button>Save</button>
       </form>
-      <form class="inline" method="post" action="/transactions/{{ t.id }}/exclude">
-        <input type="hidden" name="excluded" value="1"><input type="hidden" name="back" value="/summary?year={{ s.year }}#unassigned">
-        <button class="link" title="Leave just this line out of business expenses">Exclude this line</button>
+      <form class="inline" method="post" action="/transactions/set-included">
+        <input type="hidden" name="ids" value="{{ g.ids|join(',') }}"><input type="hidden" name="included" value="0">
+        <input type="hidden" name="back" value="/summary?year={{ s.year }}">
+        <button class="link" title="Leave these lines out of business expenses">Exclude {% if g.n > 1 %}all {{ g.n }} lines{% else %}this line{% endif %}</button>
       </form>
     </td>
   </tr>

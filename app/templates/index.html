@@ -15,7 +15,7 @@
     <td class="num">{{ a.n }}</td>
     <td>{{ a.first or "" }}</td><td>{{ a.last or "" }}</td>
     <td><form class="inline" method="post" action="/accounts/{{ a.id }}/default">
-      <select name="include_by_default" onchange="this.form.submit()" aria-label="Default for new imports from {{ a.name }}">
+      <select name="include_by_default" onchange="this.form.requestSubmit()" aria-label="Default for new imports from {{ a.name }}">
         <option value="1" {% if a.include_by_default %}selected{% endif %}>Included</option>
         <option value="0" {% if not a.include_by_default %}selected{% endif %}>Excluded</option>
       </select></form></td>
