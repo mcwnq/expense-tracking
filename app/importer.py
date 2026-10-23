@@ -291,8 +291,8 @@ def dedupe_keys(account_id: int, rows: list[ParsedRow]) -> list[str]:
 
 def save(
     conn: sqlite3.Connection, account: sqlite3.Row, rows: list[ParsedRow], filename: str
-) -> tuple[int, int]:
-    """Insert rows. Returns (added, skipped_as_duplicate)."""
+) -> tuple[int, int, int]:
+    """Insert rows. Returns (added, skipped_as_duplicate, batch_id)."""
     cur = conn.execute(
         "INSERT INTO import_batches (account_id, filename) VALUES (?, ?)",
         (account["id"], filename),
@@ -321,4 +321,4 @@ def save(
         added += cur.rowcount
     conn.execute("UPDATE import_batches SET row_count = ? WHERE id = ?", (added, batch_id))
     conn.commit()
-    return added, len(rows) - added
+    return added, len(rows) - added, batch_id
