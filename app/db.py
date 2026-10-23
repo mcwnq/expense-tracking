@@ -182,4 +182,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
         if "file_rows" not in [c["name"] for c in conn.execute("PRAGMA table_info(import_batches)")]:
             conn.execute("ALTER TABLE import_batches ADD COLUMN file_rows INTEGER")
         conn.execute("PRAGMA user_version = 9")
+    if version < 10:
+        # Rules now match only where a word starts ("FL" no longer matches NETFLIX)
+        from .vendors import apply_rules
+
+        apply_rules(conn)
+        conn.execute("PRAGMA user_version = 10")
     conn.commit()
