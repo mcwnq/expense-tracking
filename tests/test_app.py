@@ -145,3 +145,26 @@ def test_include_all_and_card_default(tmp_path):
     # include-all only touched the filtered card
     client.post("/transactions/include-all", data={"account_id": "1", "month": "", "included": 0})
     assert "1 included" in client.get("/transactions?account_id=&month=").text
+
+
+def test_edit_and_delete_card(tmp_path):
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=lambda s, e: {}))
+    client.post("/accounts", data={"name": "Visa", "currency": "CAD"})
+    client.post("/accounts/1/edit", data={"name": "RBC Visa USD", "currency": "USD"})
+    r = client.get("/")
+    assert 'value="RBC Visa USD"' in r.text and "<option selected>USD</option>" in r.text
+
+    data = "Date,Description,Amount\n2026-03-02,NINJATRADER,99.00\n"
+    client.post("/import/confirm", data={"account_id": 1, "filename": "a.csv", "csv_text": data, "date_col": "Date",
+                "description_col": "Description", "amount_col": "Amount", "charges_positive": 1, "has_header": 1,
+                "format_name": "x"})
+    assert "99.00</td>" in client.get("/transactions").text and "—" in client.get("/transactions").text  # no USD rate offline
+    client.post("/accounts/1/edit", data={"name": "Renamed", "currency": "CAD"})  # fix a wrong currency
+    r = client.get("/")
+    assert 'value="Renamed"' in r.text and "<option selected>CAD</option>" in r.text
+    t = client.get("/transactions").text
+    assert "<td>CAD</td>" in t and "net 99.00 CAD" in t
+
+    client.post("/accounts/1/delete")
+    assert "Renamed" not in client.get("/").text
+    assert "NINJATRADER" not in client.get("/transactions").text

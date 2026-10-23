@@ -3,11 +3,15 @@
 <h1>Cards</h1>
 {% if accounts %}
 <table>
-  <tr><th>Card</th><th>Currency</th><th class="num">Transactions</th><th>From</th><th>To</th><th>New imports start as</th><th></th></tr>
+  <tr><th>Card</th><th>Currency</th><th class="num">Transactions</th><th>From</th><th>To</th><th>New imports start as</th><th></th><th></th></tr>
   {% for a in accounts %}
   <tr>
-    <td><a href="/transactions?account_id={{ a.id }}">{{ a.name }}</a></td>
-    <td>{{ a.currency }}</td>
+    <td><form class="inline" method="post" action="/accounts/{{ a.id }}/edit" id="edit-{{ a.id }}">
+      <input name="name" value="{{ a.name }}" required size="18" aria-label="Card name"></form>
+      <a href="/transactions?account_id={{ a.id }}" class="muted" style="font-size:13px">view</a></td>
+    <td><select name="currency" form="edit-{{ a.id }}" aria-label="Currency"
+      {% if a.n %}onchange="if (!confirm('Change the currency of all {{ a.n }} transactions on this card? USD amounts will be re-converted to CAD.')) this.value = '{{ a.currency }}'"{% endif %}>
+      <option {% if a.currency == "CAD" %}selected{% endif %}>CAD</option><option {% if a.currency == "USD" %}selected{% endif %}>USD</option></select></td>
     <td class="num">{{ a.n }}</td>
     <td>{{ a.first or "" }}</td><td>{{ a.last or "" }}</td>
     <td><form class="inline" method="post" action="/accounts/{{ a.id }}/default">
@@ -16,6 +20,10 @@
         <option value="0" {% if not a.include_by_default %}selected{% endif %}>Excluded</option>
       </select></form></td>
     <td><a href="/import?account_id={{ a.id }}">Import CSV</a></td>
+    <td style="white-space:nowrap"><button class="secondary" form="edit-{{ a.id }}">Save</button>
+      <form class="inline" method="post" action="/accounts/{{ a.id }}/delete"
+        onsubmit="return confirm('Delete {{ a.name }}{% if a.n %} and its {{ a.n }} transactions{% endif %}? This can\'t be undone.')">
+        <button class="link">Delete</button></form></td>
   </tr>
   {% endfor %}
 </table>

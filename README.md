@@ -17,7 +17,7 @@ Then open http://127.0.0.1:8000. Your data is stored in `Documents/ExpenseTracke
 
 ## Step 1: import
 
-- **Cards**: add each credit card as CAD or USD.
+- **Cards**: add each credit card as CAD or USD. Rename a card, change its currency (its transactions are re-labelled and USD ones re-converted), or delete it along with its transactions.
 - **CSV import with saved formats**: upload a statement, check the guessed column mapping (date, description, signed amount or debit/credit, date format, header or not), preview, then import. The mapping is saved as a named format. Later files are matched to a saved format by their header row (or column count when headerless), so one format can serve several cards and a card can use several formats. Manage them under "CSV formats". Re-importing overlapping statements doesn't create duplicates, and an import can be undone from the home page.
 - **USD→CAD**: USD transactions are converted with the Bank of Canada daily rate for the transaction date (prior business day on weekends and holidays). Rates are cached locally; if you're offline, use "Fetch rates now" later.
 - **Transactions**: filter by card and month, with CAD totals.
