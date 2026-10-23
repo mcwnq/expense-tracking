@@ -103,3 +103,17 @@ def test_exclude_route(tmp_path):
     r = client.post("/transactions/2/exclude", data={"excluded": 1})
     assert 'class="excluded"' in r.text and "net 99.00 CAD" in r.text
     assert "124.00" not in client.get("/summary?year=2026").text
+
+
+def test_covers_route(tmp_path):
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=None))
+    client.post("/accounts", data={"name": "Visa", "currency": "CAD"})
+    data = "Date,Description,Amount\n2026-06-30,TRADINGVIEW,365.00\n"
+    client.post("/import/confirm", data={"account_id": 1, "filename": "a.csv", "csv_text": data, "date_col": "Date",
+                "description_col": "Description", "amount_col": "Amount", "charges_positive": 1, "has_header": 1,
+                "format_name": "x"})
+    r = client.post("/transactions/1/covers", data={"months": "12"})
+    assert '<option value="12" selected>' in r.text
+    r = client.get("/summary?year=2026")
+    assert "185.00" in r.text and "$180.00 paid in 2026 counts in later years" in r.text
+    assert "$180.00 paid in earlier years counts in 2027" in client.get("/summary?year=2027").text

@@ -111,3 +111,26 @@ def test_excluded_line_left_out(tmp_path):
     assert vendors.unassigned(conn, 2026) == [] and vendors.year_end_check(conn, 2026) == []
     vendors.set_excluded(conn, gift, False)
     assert vendors.summary(conn, 2026).total == 8000
+
+
+def test_allocate_by_day_adds_up():
+    from datetime import date
+    parts = vendors.allocate(date(2026, 6, 30), 12, 36500)
+    assert sum(parts.values()) == 36500
+    assert sum(c for (y, _), c in parts.items() if y == 2026) == 18500   # Jun 30 - Dec 31 = 185 days
+    assert parts[(2026, 6)] == 100 and parts[(2027, 6)] == 2900          # through Jun 29, 2027
+    assert vendors.allocate(date(2026, 3, 5), None, 999) == {(2026, 3): 999}
+    assert sum(vendors.allocate(date(2026, 1, 31), 1, 1001).values()) == 1001
+
+
+def test_prepaid_annual_subscription_spans_years(tmp_path):
+    conn = setup(tmp_path, [("2026-06-30", "TRADINGVIEW ANNUAL", 36500)])
+    tid = conn.execute("SELECT id FROM transactions").fetchone()[0]
+    vendors.set_service_months(conn, tid, 12)
+    s26, s27 = vendors.summary(conn, 2026), vendors.summary(conn, 2027)
+    assert s26.total == 18500 and s26.deferred_out == 18000 and s26.carried_in == 0
+    assert s27.total == 18000 and s27.carried_in == 18000
+    assert s26.all_vendors[0].recurrence == "recurring"
+    assert vendors.years(conn) == [2027, 2026]
+    vendors.set_service_months(conn, tid, None)
+    assert vendors.summary(conn, 2026).total == 36500
