@@ -65,6 +65,31 @@ def create_app(
         conn.commit()
         return RedirectResponse("/", status_code=303)
 
+    @app.post("/accounts/{account_id}/edit")
+    def edit_account(account_id: int, name: str = Form(...), currency: str = Form("")):
+        conn.execute("UPDATE OR IGNORE accounts SET name = ? WHERE id = ?", (name.strip(), account_id))
+        if currency in ("CAD", "USD"):
+            # Fixing a card set up with the wrong currency: its transactions are
+            # re-labelled and USD ones re-converted to CAD.
+            conn.execute("UPDATE accounts SET currency = ? WHERE id = ?", (currency, account_id))
+            conn.execute(
+                "UPDATE transactions SET currency = ?, fx_rate = NULL, "
+                "cad_cents = CASE WHEN ? = 'CAD' THEN amount_cents ELSE NULL END "
+                "WHERE account_id = ? AND currency != ?",
+                (currency, currency, account_id, currency),
+            )
+        conn.commit()
+        fx.fill_missing_cad(conn, fetcher)
+        return RedirectResponse("/", status_code=303)
+
+    @app.post("/accounts/{account_id}/delete")
+    def delete_account(account_id: int):
+        conn.execute("DELETE FROM transactions WHERE account_id = ?", (account_id,))
+        conn.execute("DELETE FROM import_batches WHERE account_id = ?", (account_id,))
+        conn.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
+        conn.commit()
+        return RedirectResponse("/", status_code=303)
+
     @app.get("/import", response_class=HTMLResponse)
     def import_form(request: Request, account_id: int | None = None):
         accounts = conn.execute("SELECT * FROM accounts ORDER BY name").fetchall()
