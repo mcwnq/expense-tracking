@@ -106,8 +106,9 @@
 </table>
 {% endif %}
 
+{% if assign_error %}<p class="error" id="unassigned">{{ assign_error }}</p>{% endif %}
 {% if unassigned %}
-<h2 id="unassigned">Transactions that need a vendor</h2>
+<h2 {% if not assign_error %}id="unassigned"{% endif %}>Transactions that need a vendor</h2>
 <p class="muted">Lines are grouped by the start of their description. Pick or create a vendor for a group; this saves a rule (the text to match) so the whole group and future imports are assigned automatically. If a group isn't business, exclude all its lines, or save it under a vendor with the category "Personal (exclude)" so future charges are left out too.</p>
 <table class="groups">
   <tr><th>Merchant</th><th class="num">Lines</th><th class="num">CAD</th><th>Assign</th></tr>

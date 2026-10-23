@@ -188,4 +188,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
 
         apply_rules(conn)
         conn.execute("PRAGMA user_version = 10")
+    if version < 11:
+        # Rules allow any gap between words and a digit before them ("APPLE.COM BILL", "1PASSWORD")
+        from .vendors import apply_rules
+
+        apply_rules(conn)
+        conn.execute("PRAGMA user_version = 11")
     conn.commit()

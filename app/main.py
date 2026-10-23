@@ -339,7 +339,7 @@ def create_app(
         return known[0] if known else date.today().year
 
     @app.get("/summary", response_class=HTMLResponse)
-    def summary(request: Request, year: int | None = None, show: str = "", cur: str = "", fx_error: str = ""):
+    def summary(request: Request, year: int | None = None, show: str = "", cur: str = "", fx_error: str = "", assign_error: str = ""):
         year = pick_year(year)
         fx_method, annual_rate = fx.year_setting(conn, year)
         only = show if show in ("recurring", "one-time") else None
@@ -361,6 +361,7 @@ def create_app(
             fx_method=fx_method,
             annual_rate=annual_rate,
             fx_error=fx_error,
+            assign_error=assign_error,
             all_vendors=conn.execute("SELECT * FROM vendors ORDER BY name").fetchall(),
             categories=vendors.CATEGORIES,
             suggest=vendors.suggest_pattern,
@@ -442,9 +443,17 @@ def create_app(
         category: str = Form("Other business"),
         back: str = Form("/summary"),
     ):
+        def error(msg):
+            sep = "&" if "?" in back else "?"
+            return RedirectResponse(f"{back}{sep}{urlencode({'assign_error': msg})}#unassigned", status_code=303)
+
+        rule = pattern.strip().upper()
+        descs = [r[0].upper() for r in conn.execute("SELECT description FROM transactions")]
+        if not any(vendors.rule_matches(rule, d) for d in descs):
+            return error(f'No transaction description matches "{pattern.strip()}". Try a shorter match text.')
         if vendor_id == "new":
             if not new_vendor.strip():
-                return RedirectResponse(back, status_code=303)
+                return error("Type a name for the new vendor, or pick an existing vendor from the list.")
             vid = vendors.get_or_create_vendor(conn, new_vendor, category)
         else:
             vid = int(vendor_id)
