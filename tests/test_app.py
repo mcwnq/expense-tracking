@@ -195,3 +195,49 @@ def test_migration_excludes_existing_payments(tmp_path):
     conn.execute("PRAGMA user_version = 5"); conn.commit(); conn.close()
     conn = db.connect(path)
     assert conn.execute("SELECT excluded FROM transactions").fetchone()[0] == 1
+
+
+def test_wrong_card_warnings_and_undo_import(tmp_path):
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=lambda s, e: {}))
+    client.post("/accounts", data={"name": "TD CAD", "currency": "CAD"})
+    client.post("/accounts", data={"name": "TD USD", "currency": "USD"})
+    td = {"filename": "cad.csv", "csv_text": TD, "date_col": "1", "description_col": "2", "debit_col": "3",
+          "credit_col": "4", "has_header": 0, "charges_positive": 1, "format_name": "TD"}
+    client.post("/import/confirm", data={**td, "account_id": 1})
+    amex = {"filename": "usd.csv", "csv_text": CSV, "date_col": "Date", "description_col": "Description",
+            "amount_col": "Amount", "has_header": 1, "charges_positive": 1, "format_name": "Amex"}
+    r = client.post("/import/confirm", data={**amex, "account_id": 2})
+    assert "Undo this import" in r.text
+
+    # same TD file on the USD card: lines already on TD CAD, and a different shape from that card's files
+    r = client.post("/import/preview", data={"account_id": 2}, files={"file": ("cad.csv", TD, "text/csv")})
+    assert "1 of these lines are already on TD CAD" in r.text
+    assert "don&#39;t match the files you imported to this card before (earlier files used Amex)" in r.text
+    # a matching file on the right card has no warning
+    r = client.post("/import/preview", data={"account_id": 2}, files={"file": ("usd2.csv", CSV, "text/csv")})
+    assert "Check the card" not in r.text
+
+    # import it anyway, then remove just that import from the Imports page
+    client.post("/import/confirm", data={**td, "account_id": 2, "filename": "oops.csv"})
+    page = client.get("/imports").text
+    assert "oops.csv" in page and "TD USD (USD)" in page
+    r = client.post("/batches/3/delete", data={"back": "/imports"})
+    assert r.url.path == "/imports" and "oops.csv" not in r.text
+    assert "TOPSTEP" not in client.get("/transactions?account_id=2").text
+    assert "TOPSTEP" in client.get("/transactions?account_id=1").text
+
+
+def test_migration_records_batch_signatures(tmp_path):
+    from app import db
+
+    path = tmp_path / "old.db"
+    conn = db.connect(path)
+    conn.execute("INSERT INTO csv_formats (name, signature, date_col, description_col) VALUES ('Amex', 'date|description|amount', 'Date', 'Description')")
+    conn.execute("INSERT INTO accounts (name, currency, last_format_id) VALUES ('Amex', 'USD', 1)")
+    conn.execute("INSERT INTO import_batches (account_id, filename) VALUES (1, 'old.csv')")
+    conn.execute("UPDATE import_batches SET signature = NULL")
+    conn.execute("PRAGMA user_version = 6")
+    conn.commit()
+    conn.close()
+    conn = db.connect(path)
+    assert conn.execute("SELECT signature FROM import_batches").fetchone()[0] == "date|description|amount"

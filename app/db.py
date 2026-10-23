@@ -151,4 +151,15 @@ def _migrate(conn: sqlite3.Connection) -> None:
             apply_rules(conn)
         exclude_card_payments(conn)
         conn.execute("PRAGMA user_version = 6")
+    if version < 7:
+        # Each import's file shape (header or column count), to warn when a file
+        # doesn't look like the card's earlier ones. Older imports get the card's last-used format.
+        if "signature" not in [c["name"] for c in conn.execute("PRAGMA table_info(import_batches)")]:
+            conn.execute("ALTER TABLE import_batches ADD COLUMN signature TEXT")
+        conn.execute(
+            "UPDATE import_batches SET signature = (SELECT f.signature FROM accounts a "
+            "JOIN csv_formats f ON f.id = a.last_format_id WHERE a.id = import_batches.account_id) "
+            "WHERE signature IS NULL"
+        )
+        conn.execute("PRAGMA user_version = 7")
     conn.commit()

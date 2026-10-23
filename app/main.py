@@ -149,12 +149,15 @@ def create_app(
 
         format_id = importer.save_format(conn, format_name, mapping, csv_text)
         conn.execute("UPDATE accounts SET last_format_id = ? WHERE id = ?", (format_id, account_id))
-        added, skipped, batch_id = importer.save(conn, account, rows, filename)
+        added, skipped, batch_id = importer.save(
+            conn, account, rows, filename, importer.signature(csv_text, mapping.has_header)
+        )
         vendors.apply_rules(conn)
         vendors.exclude_card_payments(conn, batch_id)
         missing = fx.fill_missing_cad(conn, fetcher) if account["currency"] == "USD" else 0
         return render(
-            request, "imported.html", account=account, added=added, skipped=skipped, missing=missing
+            request, "imported.html", account=account, added=added, skipped=skipped, missing=missing,
+            batch_id=batch_id, filename=filename,
         )
 
     def _preview(request, account, text, filename, mapping, format_name, note=None, error=None):
@@ -165,6 +168,15 @@ def create_app(
                 rows = importer.parse(text, mapping)
             except importer.CsvFormatError as e:
                 parse_error = str(e)
+        warnings = []
+        format_warning = importer.format_warning(conn, account["id"], importer.signature(text, mapping.has_header))
+        if format_warning:
+            warnings.append(format_warning)
+        for card, n in importer.found_on_other_cards(conn, account["id"], rows):
+            warnings.append(
+                f"{n} of these lines are already on {card} (same date, description and amount). "
+                "This file may belong to that card."
+            )
         return render(
             request,
             "preview.html",
@@ -180,6 +192,7 @@ def create_app(
             date_formats=importer.DATE_FORMATS,
             format_name=format_name,
             note=note,
+            warnings=warnings,
             formats=conn.execute("SELECT id, name FROM csv_formats ORDER BY name").fetchall(),
         )
 
@@ -404,11 +417,20 @@ def create_app(
         fx.fill_missing_cad(conn, fetcher)
         return RedirectResponse("/", status_code=303)
 
+    @app.get("/imports", response_class=HTMLResponse)
+    def imports(request: Request):
+        batches = conn.execute(
+            "SELECT b.*, a.name AS account, a.currency, "
+            "(SELECT COUNT(*) FROM transactions t WHERE t.batch_id = b.id) AS n "
+            "FROM import_batches b JOIN accounts a ON a.id = b.account_id ORDER BY b.id DESC"
+        ).fetchall()
+        return render(request, "imports.html", batches=batches)
+
     @app.post("/batches/{batch_id}/delete")
-    def delete_batch(batch_id: int):
+    def delete_batch(batch_id: int, back: str = Form("/")):
         conn.execute("DELETE FROM transactions WHERE batch_id = ?", (batch_id,))
         conn.execute("DELETE FROM import_batches WHERE id = ?", (batch_id,))
         conn.commit()
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse("/imports" if back == "/imports" else "/", status_code=303)
 
     return app

@@ -290,12 +290,16 @@ def dedupe_keys(account_id: int, rows: list[ParsedRow]) -> list[str]:
 
 
 def save(
-    conn: sqlite3.Connection, account: sqlite3.Row, rows: list[ParsedRow], filename: str
+    conn: sqlite3.Connection,
+    account: sqlite3.Row,
+    rows: list[ParsedRow],
+    filename: str,
+    signature: str | None = None,
 ) -> tuple[int, int, int]:
     """Insert rows. Returns (added, skipped_as_duplicate, batch_id)."""
     cur = conn.execute(
-        "INSERT INTO import_batches (account_id, filename) VALUES (?, ?)",
-        (account["id"], filename),
+        "INSERT INTO import_batches (account_id, filename, signature) VALUES (?, ?, ?)",
+        (account["id"], filename, signature),
     )
     batch_id = cur.lastrowid
     is_cad = account["currency"] == "CAD"
@@ -322,3 +326,39 @@ def save(
     conn.execute("UPDATE import_batches SET row_count = ? WHERE id = ?", (added, batch_id))
     conn.commit()
     return added, len(rows) - added, batch_id
+
+
+def format_warning(conn: sqlite3.Connection, account_id: int, sig: str) -> str | None:
+    """A message when the card has earlier imports and none had this file's shape."""
+    used = {
+        r["signature"]
+        for r in conn.execute(
+            "SELECT DISTINCT signature FROM import_batches WHERE account_id = ? AND signature IS NOT NULL",
+            (account_id,),
+        )
+    }
+    if not used or sig in used:
+        return None
+    names = [
+        r["name"]
+        for r in conn.execute(
+            f"SELECT name FROM csv_formats WHERE signature IN ({','.join('?' * len(used))}) ORDER BY name",
+            sorted(used),
+        )
+    ]
+    earlier = f" (earlier files used {', '.join(names)})" if names else ""
+    return f"This file's columns don't match the files you imported to this card before{earlier}. Check that you picked the right card."
+
+
+def found_on_other_cards(conn: sqlite3.Connection, account_id: int, rows: list[ParsedRow]) -> list[tuple[str, int]]:
+    """(card name, line count) for cards that already have lines with the same date,
+    description and amount, a sign the file was meant for one of them."""
+    counts: Counter = Counter()
+    for r in rows:
+        for hit in conn.execute(
+            "SELECT DISTINCT a.name FROM transactions t JOIN accounts a ON a.id = t.account_id "
+            "WHERE t.account_id != ? AND t.txn_date = ? AND upper(t.description) = ? AND t.amount_cents = ?",
+            (account_id, r.txn_date.isoformat(), r.description.upper(), r.amount_cents),
+        ):
+            counts[hit["name"]] += 1
+    return counts.most_common()
