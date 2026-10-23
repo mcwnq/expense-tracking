@@ -1,3 +1,5 @@
+import re
+
 from fastapi.testclient import TestClient
 
 from app.main import create_app
@@ -372,3 +374,18 @@ def test_migration_records_lines_of_existing_imports(tmp_path):
     conn.close()
     conn = db.connect(path)
     assert [tuple(r) for r in conn.execute("SELECT batch_id, dedupe_key FROM batch_lines")] == [(1, "k1")]
+
+
+def test_imports_page_shows_rows_in_file(tmp_path):
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=None))
+    client.post("/accounts", data={"name": "Visa", "currency": "CAD"})
+    base = {"account_id": 1, "date_col": "Date", "description_col": "Description", "amount_col": "Amount",
+            "charges_positive": 1, "has_header": 1, "format_name": "Visa"}
+    sep = "Date,Description,Amount\n2026-09-05,NINJATRADER,99.00\n2026-09-20,CME DATA,12.50\n"
+    year = sep + "2026-10-05,NINJATRADER,99.00\n2026-10-06,PENDING,\n"  # overlaps; last row has no amount
+    client.post("/import/confirm", data={**base, "filename": "sep.csv", "csv_text": sep})
+    client.post("/import/confirm", data={**base, "filename": "year.csv", "csv_text": year})
+    page = client.get("/imports").text
+    rows = re.findall(r'<td class="num[^"]*">([^<]*)</td>', page)
+    assert rows[:3] == ["4", "1", "2"]  # year.csv: 4 data rows, 1 added, 2 in sep.csv
+    assert rows[3:6] == ["2", "2", ""]  # sep.csv

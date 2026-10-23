@@ -159,7 +159,8 @@ def create_app(
         results = []
         for name, text, rows in parsed:
             added, skipped, batch_id = importer.save(
-                conn, account, rows, name, importer.signature(text, mapping.has_header)
+                conn, account, rows, name, importer.signature(text, mapping.has_header),
+                file_rows=len(importer.read_rows(text, mapping.has_header)[1]),
             )
             results.append({"filename": name, "added": added, "skipped": skipped, "batch_id": batch_id})
         vendors.apply_rules(conn)
@@ -506,7 +507,10 @@ def create_app(
     def imports(request: Request):
         batches = conn.execute(
             "SELECT b.*, a.name AS account, a.currency, "
-            "(SELECT COUNT(*) FROM transactions t WHERE t.batch_id = b.id) AS n "
+            "(SELECT COUNT(*) FROM transactions t WHERE t.batch_id = b.id) AS n, "
+            # lines in this file that belong to another import (overlapping statements)
+            "(SELECT COUNT(*) FROM batch_lines l JOIN transactions t ON t.dedupe_key = l.dedupe_key "
+            " WHERE l.batch_id = b.id AND t.batch_id != b.id) AS shared "
             "FROM import_batches b JOIN accounts a ON a.id = b.account_id ORDER BY b.id DESC"
         ).fetchall()
         return render(request, "imports.html", batches=batches)
