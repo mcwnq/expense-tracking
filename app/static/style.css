@@ -49,3 +49,4 @@ table.lines td { padding:3px 8px 3px 0; border:0; }
 table.groups > tbody > tr > td { vertical-align:top; }
 table.lines td { white-space:nowrap; }
 td.nowrap { white-space:nowrap; }
+h3 { font-size:15px; margin:20px 0 8px; }

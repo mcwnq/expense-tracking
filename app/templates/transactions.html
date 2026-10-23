@@ -23,6 +23,23 @@
   </div>
   <button>Filter</button>
 </form>
+{% if accounts %}
+<details class="card" {% if not rows %}open{% endif %}>
+  <summary><strong>Add a transaction by hand</strong> <span class="muted">for a charge that isn't in a CSV, such as a cash or e-transfer payment</span></summary>
+  <form method="post" action="/transactions/add" style="margin-top:12px">
+    <input type="hidden" name="back" value="{{ here }}">
+    <div class="grid">
+      <div><label>Card or account</label><select name="account_id">
+        {% for a in accounts %}<option value="{{ a.id }}" {% if a.id == account_id %}selected{% endif %}>{{ a.name }} ({{ a.currency }})</option>{% endfor %}</select></div>
+      <div><label>Date</label><input type="date" name="txn_date" required></div>
+      <div><label>Description</label><input name="description" required placeholder="What it was for"></div>
+      <div><label>Amount (refunds negative)</label><input name="amount" required inputmode="decimal" placeholder="e.g. 165.00"></div>
+    </div>
+    <button>Add transaction</button>
+    <span class="muted">Uses the card's currency. Vendor rules apply as for imports, and it starts included.</span>
+  </form>
+</details>
+{% endif %}
 <div class="toolbar">
   <div class="segmented" role="group" aria-label="View">
     <a href="{{ here_for('lines') }}" {% if view == "lines" %}class="on" aria-current="true"{% endif %}>Lines</a><a href="{{ here_for('merchants') }}" {% if view == "merchants" %}class="on" aria-current="true"{% endif %}>By merchant</a>
@@ -71,7 +88,9 @@
       <input type="date" name="tax_date" value="{{ t.tax_date }}" aria-label="Date this counts on" onchange="this.form.requestSubmit()"
         {% if t.tax_date != t.txn_date %}style="border-color:#a65d00"{% endif %}>
     </form></td>
-    <td>{{ t.account }}</td><td>{{ t.description }}</td><td>{{ t.vendor or "" }}</td>
+    <td>{{ t.account }}</td><td>{{ t.description }}{% if t.batch_id is none %} <span class="chip auto" title="Added by hand">manual</span>
+      <form class="inline" method="post" action="/transactions/{{ t.id }}/delete" onsubmit="return confirm('Delete this transaction you added?')">
+        <input type="hidden" name="back" value="{{ here }}"><button class="link">Delete</button></form>{% endif %}</td><td>{{ t.vendor or "" }}</td>
     <td class="num">{{ t.amount_cents|money }}</td><td>{{ t.currency }}</td>
     <td class="num">{{ t.fx_rate or "" }}</td>
     <td class="num {% if t.cad_cents is none %}warn{% endif %}">{{ t.cad_cents|money }}</td>

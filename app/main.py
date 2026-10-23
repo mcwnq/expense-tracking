@@ -283,6 +283,29 @@ def create_app(
             included_count=sum(1 for r in rows if not r["excluded"]),
         )
 
+    @app.post("/transactions/add")
+    def add_transaction(
+        account_id: int = Form(...),
+        txn_date: date = Form(...),
+        description: str = Form(...),
+        amount: str = Form(...),
+        back: str = Form("/transactions"),
+    ):
+        account = get_account(account_id)
+        value = importer.parse_amount(amount)
+        if account and description.strip() and value is not None:
+            importer.add_manual(conn, account, txn_date, description, importer.to_cents(value))
+            vendors.apply_rules(conn)
+            fx.fill_missing_cad(conn, fetcher)
+        return RedirectResponse(back if back.startswith("/") and not back.startswith("//") else "/transactions", status_code=303)
+
+    @app.post("/transactions/{txn_id}/delete")
+    def delete_transaction(txn_id: int, back: str = Form("/transactions")):
+        # Only lines added by hand; imported lines are removed with their import
+        conn.execute("DELETE FROM transactions WHERE id = ? AND batch_id IS NULL", (txn_id,))
+        conn.commit()
+        return RedirectResponse(back if back.startswith("/") and not back.startswith("//") else "/transactions", status_code=303)
+
     @app.post("/transactions/set-included")
     def set_included_many(ids: str = Form(""), included: int = Form(1), back: str = Form("/transactions")):
         vendors.set_included_ids(conn, [int(i) for i in ids.split(",") if i.isdigit()], bool(included))
@@ -315,14 +338,25 @@ def create_app(
         return known[0] if known else date.today().year
 
     @app.get("/summary", response_class=HTMLResponse)
-    def summary(request: Request, year: int | None = None, show: str = "", fx_error: str = ""):
+    def summary(request: Request, year: int | None = None, show: str = "", cur: str = "", fx_error: str = ""):
         year = pick_year(year)
         fx_method, annual_rate = fx.year_setting(conn, year)
         only = show if show in ("recurring", "one-time") else None
+        cur = cur if cur in ("USD", "CAD") else "split"
+        if cur == "split":
+            s = vendors.summary(conn, year, only)
+            tables = [
+                (f"Charged in {c}", vendors.summary(conn, year, only, charged_in=c)) for c in ("USD", "CAD")
+            ]
+        else:
+            s = summary_in(year, only, cur)
+            tables = [("", s)]
         return render(
             request,
             "summary.html",
-            s=vendors.summary(conn, year, only),
+            s=s,
+            tables=tables,
+            cur=cur,
             show=show,
             years=vendors.years(conn) or [year],
             unassigned=(unassigned := vendors.unassigned(conn, year)),
@@ -340,6 +374,17 @@ def create_app(
             ).fetchone()[0],
         )
 
+    def summary_in(year: int, only: str | None, currency: str) -> vendors.Summary:
+        s = vendors.summary(conn, year, only, currency)
+        if s.unconverted and currency == "USD" and fetcher is not None:
+            # CAD lines need rates for their own dates, which USD imports may not have fetched
+            try:
+                fx.ensure_rates(conn, date(year, 1, 1), min(date(year, 12, 31), date.today()), fetcher)
+            except OSError:
+                return s
+            s = vendors.summary(conn, year, only, currency)
+        return s
+
     @app.post("/tax-years/{year}/fx")
     def set_fx_method(year: int, method: str = Form(...), annual_rate: str = Form("")):
         rate = annual_rate.strip() or None
@@ -355,8 +400,8 @@ def create_app(
         return RedirectResponse(f"/summary?year={year}", status_code=303)
 
     @app.get("/summary.csv")
-    def summary_csv(year: int | None = None):
-        s = vendors.summary(conn, pick_year(year))
+    def summary_csv(year: int | None = None, cur: str = "CAD"):
+        s = summary_in(pick_year(year), None, "USD" if cur == "USD" else "CAD")
         out = io.StringIO()
         w = csv.writer(out)
         months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -368,7 +413,7 @@ def create_app(
         return Response(
             out.getvalue(),
             media_type="text/csv",
-            headers={"Content-Disposition": f'attachment; filename="expenses-{s.year}.csv"'},
+            headers={"Content-Disposition": f'attachment; filename="expenses-{s.year}-{s.currency}.csv"'},
         )
 
     @app.post("/transactions/{txn_id}/tax-date")

@@ -11,6 +11,7 @@ import re
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 
 CATEGORIES = [
     "Prop firm evaluations",
@@ -219,26 +220,45 @@ class Summary:
     def count_for(self, recurrence: str) -> int:
         return sum(1 for v in self.all_vendors if v.recurrence == recurrence)
 
-    # Prepaid amounts crossing the year boundary, in CAD cents
+    # Prepaid amounts crossing the year boundary, in cents of `currency`
     deferred_out: int = 0  # paid this year, counted in later years
     carried_in: int = 0  # paid in earlier years, counted this year
+    currency: str = "CAD"
+    unconverted: int = 0  # lines left out because no exchange rate is available yet
 
 
-def summary(conn: sqlite3.Connection, year: int, only: str | None = None) -> Summary:
-    """Business expenses for a year in CAD cents, grouped by category then vendor.
+def summary(
+    conn: sqlite3.Connection,
+    year: int,
+    only: str | None = None,
+    currency: str = "CAD",
+    charged_in: str | None = None,
+) -> Summary:
+    """Business expenses for a year in cents, grouped by category then vendor.
 
-    Refunds net against the vendor's charges in the month they post. Prepaid
-    charges are spread over their service period, so part of a charge can fall
-    in another year. Excluded categories and unassigned transactions are left
-    out (see unassigned()).
+    Amounts are in `currency` (CAD or USD), converting at the Bank of Canada rate
+    the year uses. With `charged_in`, only lines charged in that currency are
+    counted, in their own currency. Refunds net against the vendor's charges in
+    the month they post. Prepaid charges are spread over their service period,
+    so part of a charge can fall in another year. Excluded categories and
+    unassigned transactions are left out (see unassigned()).
     """
-    rows = conn.execute(
-        "SELECT v.id, v.name, v.category, v.recurrence, t.tax_date, t.service_months, t.cad_cents, t.amount_cents "
+    if charged_in:
+        currency = charged_in
+    sql = (
+        "SELECT v.id, v.name, v.category, v.recurrence, t.tax_date, t.service_months, t.cad_cents, "
+        "t.amount_cents, t.currency "
         "FROM transactions t JOIN vendors v ON v.id = t.vendor_id "
         "WHERE t.tax_date <= ? AND (substr(t.tax_date, 1, 4) = ? OR t.service_months IS NOT NULL) "
-        "AND t.cad_cents IS NOT NULL AND NOT t.excluded",
-        (f"{year}-12-31", str(year)),
-    ).fetchall()
+        "AND NOT t.excluded"
+    )
+    args: list = [f"{year}-12-31", str(year)]
+    if charged_in:
+        sql += " AND t.currency = ?"
+        args.append(charged_in)
+    rows = conn.execute(sql, args).fetchall()
+    to = _converter(conn, currency)
+    unconverted = 0
 
     vendors: dict[int, VendorRow] = {}
     charged: dict[int, set[int]] = {}
@@ -248,7 +268,11 @@ def summary(conn: sqlite3.Connection, year: int, only: str | None = None) -> Sum
         if r["category"] in EXCLUDED:
             continue
         paid = date.fromisoformat(r["tax_date"])
-        parts = allocate(paid, r["service_months"], r["cad_cents"])
+        cents = to(r)
+        if cents is None:
+            unconverted += 1
+            continue
+        parts = allocate(paid, r["service_months"], cents)
         in_year = {m: c for (y, m), c in parts.items() if y == year}
         if paid.year == year:
             deferred_out += sum(c for (y, _), c in parts.items() if y > year)
@@ -282,7 +306,33 @@ def summary(conn: sqlite3.Connection, year: int, only: str | None = None) -> Sum
         all_vendors,
         deferred_out,
         carried_in,
+        currency,
+        unconverted,
     )
+
+
+def _converter(conn: sqlite3.Connection, currency: str):
+    """A function giving a transaction row's amount in `currency` cents, or None
+    when the rate it needs hasn't been fetched yet."""
+    from . import fx
+
+    if currency == "CAD":
+        return lambda r: r["cad_cents"]
+    rates: dict[str, Decimal | None] = {}
+
+    def usd(r):
+        if r["currency"] == "USD":
+            return r["amount_cents"]
+        day = r["tax_date"]
+        if day not in rates:
+            method, annual = fx.year_setting(conn, int(day[:4]))
+            rates[day] = annual if method == "annual" else fx.usd_to_cad_rate(conn, date.fromisoformat(day))
+        rate = rates[day]
+        if rate is None:
+            return None
+        return int((Decimal(r["cad_cents"]) / rate).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+    return usd
 
 
 def unassigned(conn: sqlite3.Connection, year: int) -> list[sqlite3.Row]:

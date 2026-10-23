@@ -299,3 +299,37 @@ def test_import_several_files_together(tmp_path):
     files = [("file", ("a.csv", jan, "text/csv")), ("file", ("b.csv", other, "text/csv"))]
     r = client.post("/import/preview", data={"account_id": 1}, files=files)
     assert "don&#39;t all have the same columns" in r.text and "disabled" in r.text
+
+
+def test_add_and_delete_manual_transaction(tmp_path):
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=lambda s, e: {"2026-03-02": "1.40"}))
+    client.post("/accounts", data={"name": "Amex USD", "currency": "USD"})
+    r = client.post("/transactions/add", data={"account_id": 1, "txn_date": "2026-03-02",
+                    "description": "Topstep combine", "amount": "$100.00", "back": "/transactions"})
+    assert "Topstep combine" in r.text and "manual" in r.text
+    assert "140.00" in r.text  # converted to CAD, and the Topstep rule assigned the vendor
+    assert "Topstep" in client.get("/summary?year=2026").text
+
+    # bad amount is ignored
+    client.post("/transactions/add", data={"account_id": 1, "txn_date": "2026-03-03", "description": "x", "amount": "abc"})
+    assert "2026-03-03" not in client.get("/transactions").text
+
+    r = client.post("/transactions/1/delete", data={"back": "/transactions"})
+    assert "Topstep combine" not in r.text
+
+
+def test_summary_split_by_currency_and_all_in_usd(tmp_path):
+    rates = {"2026-03-02": "1.25", "2026-03-09": "1.25"}
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=lambda s, e: rates))
+    client.post("/accounts", data={"name": "Amex USD", "currency": "USD"})
+    client.post("/accounts", data={"name": "TD CAD", "currency": "CAD"})
+    client.post("/transactions/add", data={"account_id": 1, "txn_date": "2026-03-02", "description": "TRADOVATE", "amount": "100"})
+    client.post("/transactions/add", data={"account_id": 2, "txn_date": "2026-03-09", "description": "TRADOVATE", "amount": "50"})
+
+    r = client.get("/summary?year=2026&cur=CAD")
+    assert "175.00" in r.text  # 100 USD * 1.25 + 50 CAD
+    r = client.get("/summary?year=2026&cur=split")
+    assert "Charged in USD · $100.00 USD" in r.text and "Charged in CAD · $50.00 CAD" in r.text
+    r = client.get("/summary?year=2026&cur=USD")
+    assert "140.00" in r.text and "amounts in USD" in r.text  # 100 USD + 50 CAD / 1.25
+    assert "140.00" in client.get("/summary.csv?year=2026&cur=USD").text

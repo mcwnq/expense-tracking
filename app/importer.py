@@ -13,6 +13,7 @@ import hashlib
 import io
 import re
 import sqlite3
+import uuid
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -232,6 +233,11 @@ def _try_amount(s: str) -> Decimal | None:
     return -value if negative else value
 
 
+def parse_amount(s: str) -> Decimal | None:
+    """An amount typed by hand: "$1,234.50", "-20" or "(20.00)"."""
+    return _try_amount(s)
+
+
 def to_cents(value: Decimal) -> int:
     return int((value * 100).quantize(Decimal("1")))
 
@@ -362,3 +368,23 @@ def found_on_other_cards(conn: sqlite3.Connection, account_id: int, rows: list[P
         ):
             counts[hit["name"]] += 1
     return counts.most_common()
+
+
+def add_manual(conn: sqlite3.Connection, account: sqlite3.Row, on: date, description: str, amount_cents: int) -> int:
+    """Add a transaction typed in by hand (no import). Returns its id."""
+    cur = conn.execute(
+        "INSERT INTO transactions (account_id, batch_id, txn_date, tax_date, description, amount_cents, currency, "
+        "cad_cents, dedupe_key, excluded) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, 0)",
+        (
+            account["id"],
+            on.isoformat(),
+            on.isoformat(),
+            description.strip(),
+            amount_cents,
+            account["currency"],
+            amount_cents if account["currency"] == "CAD" else None,
+            f"manual:{uuid.uuid4().hex}",
+        ),
+    )
+    conn.commit()
+    return cur.lastrowid
