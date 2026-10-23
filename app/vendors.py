@@ -287,7 +287,8 @@ def summary(conn: sqlite3.Connection, year: int, only: str | None = None) -> Sum
 
 def unassigned(conn: sqlite3.Connection, year: int) -> list[sqlite3.Row]:
     return conn.execute(
-        "SELECT t.*, a.name AS account FROM transactions t JOIN accounts a ON a.id = t.account_id "
+        "SELECT t.*, a.name AS account, NULL AS vendor, NULL AS vendor_category "
+        "FROM transactions t JOIN accounts a ON a.id = t.account_id "
         "WHERE t.vendor_id IS NULL AND NOT t.excluded AND substr(t.tax_date, 1, 4) = ? ORDER BY t.tax_date",
         (str(year),),
     ).fetchall()
@@ -319,20 +320,47 @@ def set_service_months(conn: sqlite3.Connection, txn_id: int, months: int | None
     conn.commit()
 
 
-def set_included_where(
-    conn: sqlite3.Connection, included: bool, account_id: int | None = None, month: str | None = None
-) -> int:
-    """Include or exclude every transaction matching the Transactions page filters."""
-    sql, args = "UPDATE transactions SET excluded = ? WHERE 1=1", [0 if included else 1]
-    if account_id:
-        sql += " AND account_id = ?"
-        args.append(account_id)
-    if month:
-        sql += " AND substr(tax_date, 1, 7) = ?"
-        args.append(month)
-    n = conn.execute(sql, args).rowcount
+@dataclass
+class MerchantGroup:
+    """Lines from one merchant: its vendor when assigned, otherwise the suggested rule text."""
+
+    label: str
+    vendor: str | None
+    category: str | None
+    ids: list[int] = field(default_factory=list)
+    included: int = 0
+    cad_cents: int = 0
+    first: str = ""
+    last: str = ""
+    sample: str = ""
+
+    @property
+    def n(self) -> int:
+        return len(self.ids)
+
+
+def group_by_merchant(rows: list[sqlite3.Row]) -> list[MerchantGroup]:
+    """Group transaction rows (needing id, description, vendor, vendor_category, excluded,
+    cad_cents, tax_date) by merchant, biggest groups first."""
+    groups: dict[str, MerchantGroup] = {}
+    for r in rows:
+        label = r["vendor"] or suggest_pattern(r["description"])
+        g = groups.get(label)
+        if g is None:
+            g = groups[label] = MerchantGroup(label, r["vendor"], r["vendor_category"], sample=r["description"])
+        g.ids.append(r["id"])
+        g.cad_cents += r["cad_cents"] or 0
+        if not r["excluded"]:
+            g.included += 1
+        g.first = min(g.first or r["tax_date"], r["tax_date"])
+        g.last = max(g.last, r["tax_date"])
+    return sorted(groups.values(), key=lambda g: (-g.n, g.label))
+
+
+def set_included_ids(conn: sqlite3.Connection, ids: list[int], included: bool) -> None:
+    """Include or exclude several transactions at once."""
+    conn.executemany("UPDATE transactions SET excluded = ? WHERE id = ?", [(0 if included else 1, i) for i in ids])
     conn.commit()
-    return n
 
 
 def set_excluded(conn: sqlite3.Connection, txn_id: int, excluded: bool) -> None:

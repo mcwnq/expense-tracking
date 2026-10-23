@@ -2,27 +2,67 @@
 {% block content %}
 <h1>Transactions</h1>
 <form class="card" method="get">
+  <input type="hidden" name="view" value="{{ view }}">
   <div class="grid">
     <div><label>Card</label><select name="account_id"><option value="">All cards</option>
       {% for a in accounts %}<option value="{{ a.id }}" {% if a.id == account_id %}selected{% endif %}>{{ a.name }}</option>{% endfor %}</select></div>
     <div><label>Month</label><select name="month"><option value="">All months</option>
       {% for m in months %}<option {% if m == month %}selected{% endif %}>{{ m }}</option>{% endfor %}</select></div>
+    <div><label>Search description or vendor</label><input name="q" value="{{ q }}" placeholder="Any part of the name" type="search"></div>
+    <div><label>Show</label><select name="show">
+      <option value="">All lines</option>
+      <option value="included" {% if show == "included" %}selected{% endif %}>Included only</option>
+      <option value="excluded" {% if show == "excluded" %}selected{% endif %}>Excluded only</option></select></div>
   </div>
   <button>Filter</button>
 </form>
+<div class="toolbar">
+  <div class="segmented" role="group" aria-label="View">
+    <a href="{{ here_for('lines') }}" {% if view == "lines" %}class="on" aria-current="true"{% endif %}>Lines</a><a href="{{ here_for('merchants') }}" {% if view == "merchants" %}class="on" aria-current="true"{% endif %}>By merchant</a>
+  </div>
+  {% if rows %}
+  <div>
+    {% for inc, label in [(1, "Include"), (0, "Exclude")] %}
+    <form class="inline" method="post" action="/transactions/set-included"
+      onsubmit="return confirm({{ (label ~ ' all ' ~ rows|length ~ ' transactions shown?')|tojson|forceescape }})">
+      <input type="hidden" name="ids" value="{{ all_ids }}"><input type="hidden" name="included" value="{{ inc }}">
+      <input type="hidden" name="back" value="{{ here }}">
+      <button class="secondary">{{ label }} all {{ rows|length }} shown</button></form>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
 <p class="muted">{{ rows|length }} transactions · {{ included_count }} included as business expenses · net {{ total_cad|money }} CAD (included only)</p>
+{% if view == "merchants" %}
+<p class="muted">Lines are grouped by vendor, or by the start of the description when there's no vendor yet. Tick a merchant to include all its lines, untick to exclude them all.</p>
 <table>
-  <tr><th>Card date</th><th>Counts on <span class="muted" title="The date used for the tax year, month and USD rate. Change it if the card date is off (e.g. UTC).">ⓘ</span></th><th>Card</th><th>Description</th><th>Vendor</th><th class="num">Amount</th><th>Cur</th><th class="num">USD→CAD</th><th class="num">CAD</th><th>Covers <span class="muted" title="For a prepaid charge such as an annual subscription: the amount is spread by day over this period, so part of it can count in the next tax year.">ⓘ</span></th><th><form class="inline" method="post" action="/transactions/include-all">
-    <input type="hidden" name="account_id" value="{{ account_id or '' }}"><input type="hidden" name="month" value="{{ month or '' }}">
-    <input type="hidden" name="included" value="{{ 0 if all_included else 1 }}">
-    <label style="display:inline; color:inherit; font-size:inherit"><input type="checkbox" {% if all_included %}checked{% endif %} onchange="this.form.submit()" aria-label="Include all shown transactions"> Include all</label>
-  </form></th></tr>
+  <tr><th>Include</th><th>Merchant</th><th>Category</th><th class="num">Lines included</th><th>Dates</th><th class="num">CAD</th><th></th></tr>
+  {% for g in groups %}
+  <tr {% if not g.included %}class="excluded"{% endif %}>
+    <td><form class="inline" method="post" action="/transactions/set-included">
+      <input type="hidden" name="ids" value="{{ g.ids|join(',') }}"><input type="hidden" name="back" value="{{ here }}">
+      <input type="hidden" name="included" value="{{ 0 if g.included == g.n else 1 }}">
+      <input type="checkbox" {% if g.included == g.n %}checked{% endif %} {% if 0 < g.included < g.n %}data-mixed{% endif %}
+        onchange="this.form.requestSubmit()" aria-label="Include all {{ g.n }} lines from {{ g.label }}"></form></td>
+    <td>{{ g.label }}{% if not g.vendor %} <span class="muted">· no vendor yet, e.g. {{ g.sample }}</span>{% endif %}</td>
+    <td>{{ g.category or "" }}</td>
+    <td class="num">{{ g.included }} of {{ g.n }}</td>
+    <td class="nowrap">{{ g.first }}{% if g.last != g.first %} to {{ g.last }}{% endif %}</td>
+    <td class="num">{{ g.cad_cents|money }}</td>
+    <td class="nowrap"><a href="/transactions?{{ {'account_id': account_id or '', 'month': month, 'q': g.label, 'show': show, 'view': 'lines'}|urlencode }}">See lines</a></td>
+  </tr>
+  {% endfor %}
+</table>
+<script>document.querySelectorAll("input[data-mixed]").forEach(c => c.indeterminate = true)</script>
+{% else %}
+<table>
+  <tr><th>Card date</th><th>Counts on <span class="muted" title="The date used for the tax year, month and USD rate. Change it if the card date is off (e.g. UTC).">ⓘ</span></th><th>Card</th><th>Description</th><th>Vendor</th><th class="num">Amount</th><th>Cur</th><th class="num">USD→CAD</th><th class="num">CAD</th><th>Covers <span class="muted" title="For a prepaid charge such as an annual subscription: the amount is spread by day over this period, so part of it can count in the next tax year.">ⓘ</span></th><th>Include</th></tr>
   {% for t in rows %}
   <tr {% if t.excluded %}class="excluded"{% endif %}>
     <td>{{ t.txn_date }}</td>
     <td><form class="inline" method="post" action="/transactions/{{ t.id }}/tax-date">
-      <input type="hidden" name="back" value="/transactions?account_id={{ account_id or '' }}&month={{ month or '' }}">
-      <input type="date" name="tax_date" value="{{ t.tax_date }}" aria-label="Date this counts on" onchange="this.form.submit()"
+      <input type="hidden" name="back" value="{{ here }}">
+      <input type="date" name="tax_date" value="{{ t.tax_date }}" aria-label="Date this counts on" onchange="this.form.requestSubmit()"
         {% if t.tax_date != t.txn_date %}style="border-color:#a65d00"{% endif %}>
     </form></td>
     <td>{{ t.account }}</td><td>{{ t.description }}</td><td>{{ t.vendor or "" }}</td>
@@ -30,22 +70,23 @@
     <td class="num">{{ t.fx_rate or "" }}</td>
     <td class="num {% if t.cad_cents is none %}warn{% endif %}">{{ t.cad_cents|money }}</td>
     <td><form class="inline" method="post" action="/transactions/{{ t.id }}/covers">
-      <input type="hidden" name="back" value="/transactions?account_id={{ account_id or '' }}&month={{ month or '' }}">
-      <select name="months" onchange="this.form.submit()" aria-label="Service period for {{ t.description }}">
+      <input type="hidden" name="back" value="{{ here }}">
+      <select name="months" onchange="this.form.requestSubmit()" aria-label="Service period for {{ t.description }}">
         <option value="" {% if not t.service_months %}selected{% endif %}>—</option>
         {% for m in [1, 3, 6, 12, 24, 36] %}<option value="{{ m }}" {% if t.service_months == m %}selected{% endif %}>{{ m }} mo</option>{% endfor %}
         {% if t.service_months and t.service_months not in [1, 3, 6, 12, 24, 36] %}<option value="{{ t.service_months }}" selected>{{ t.service_months }} mo</option>{% endif %}
       </select>
     </form></td>
     <td><form class="inline" method="post" action="/transactions/{{ t.id }}/exclude">
-      <input type="hidden" name="back" value="/transactions?account_id={{ account_id or '' }}&month={{ month or '' }}">
+      <input type="hidden" name="back" value="{{ here }}">
       <input type="hidden" name="excluded" value="{{ 0 if t.excluded else 1 }}">
       <input type="checkbox" {% if not t.excluded %}checked{% endif %}
         {% if not t.excluded and t.vendor and t.vendor_included and not t.vendor_category.endswith("(exclude)") %}
-        onchange="if (confirm({{ ('Similar charges from "' ~ t.vendor ~ '" (' ~ t.vendor_included ~ ' more) are included as business expenses. Are you sure you want to exclude this one?')|tojson|forceescape }})) this.form.submit(); else this.checked = true"
-        {% else %}onchange="this.form.submit()"{% endif %} aria-label="Include {{ t.description }} as a business expense" title="Business expense">
+        onchange="if (confirm({{ ('Similar charges from "' ~ t.vendor ~ '" (' ~ t.vendor_included ~ ' more) are included as business expenses. Are you sure you want to exclude this one?')|tojson|forceescape }})) this.form.requestSubmit(); else this.checked = true"
+        {% else %}onchange="this.form.requestSubmit()"{% endif %} aria-label="Include {{ t.description }} as a business expense" title="Business expense">
     </form></td>
   </tr>
   {% endfor %}
 </table>
+{% endif %}
 {% endblock %}

@@ -20,5 +20,22 @@
 <main>
 {% block content %}{% endblock %}
 </main>
+<script>
+// Saving a change reloads the page; come back to the same scroll position instead of the top.
+try {
+  const key = "scroll:" + location.pathname + location.search;
+  const saved = sessionStorage.getItem(key);
+  if (saved !== null) {
+    sessionStorage.removeItem(key);
+    window.addEventListener("load", () => window.scrollTo(0, +saved));
+  }
+  document.addEventListener("submit", e => {
+    if (e.target.method.toLowerCase() !== "post") return;
+    const back = e.target.querySelector("input[name=back]");
+    const url = back ? new URL(back.value, location.href) : location;
+    sessionStorage.setItem("scroll:" + url.pathname + url.search, String(window.scrollY));
+  });
+} catch (err) {}
+</script>
 </body>
 </html>

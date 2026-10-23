@@ -4,7 +4,7 @@ import csv
 import io
 from datetime import date
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from fastapi import FastAPI, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -197,7 +197,9 @@ def create_app(
         )
 
     @app.get("/transactions", response_class=HTMLResponse)
-    def transactions(request: Request, account_id: str = "", month: str = ""):
+    def transactions(
+        request: Request, account_id: str = "", month: str = "", q: str = "", show: str = "", view: str = ""
+    ):
         # The filter form sends empty strings for "All"
         account_id = int(account_id) if account_id.isdigit() else None
         sql = (
@@ -215,6 +217,12 @@ def create_app(
         if month:
             sql += " AND substr(t.tax_date, 1, 7) = ?"
             args.append(month)
+        if q.strip():
+            sql += " AND (upper(t.description) LIKE ? OR upper(coalesce(v.name, '')) LIKE ?)"
+            args += [f"%{q.strip().upper()}%"] * 2
+        if show in ("included", "excluded"):
+            sql += " AND t.excluded = ?"
+            args.append(int(show == "excluded"))
         sql += " ORDER BY t.tax_date DESC, t.id DESC"
         rows = conn.execute(sql, args).fetchall()
         accounts = conn.execute("SELECT * FROM accounts ORDER BY name").fetchall()
@@ -225,19 +233,32 @@ def create_app(
             )
         ]
         total_cad = sum(r["cad_cents"] or 0 for r in rows if not r["excluded"])
-        all_included = bool(rows) and not any(r["excluded"] for r in rows)
+        view = "merchants" if view == "merchants" else "lines"
+        here = f"/transactions?{urlencode({'account_id': account_id or '', 'month': month, 'q': q, 'show': show, 'view': view})}"
         return render(
             request,
             "transactions.html",
             rows=rows,
+            groups=vendors.group_by_merchant(rows) if view == "merchants" else [],
             accounts=accounts,
             months=months,
             account_id=account_id,
             month=month,
+            q=q,
+            show=show,
+            view=view,
+            here=here,
+            here_for=lambda v: here.replace(f"view={view}", f"view={v}"),
+            all_ids=",".join(str(r["id"]) for r in rows),
             total_cad=total_cad,
-            all_included=all_included,
+            all_included=bool(rows) and not any(r["excluded"] for r in rows),
             included_count=sum(1 for r in rows if not r["excluded"]),
         )
+
+    @app.post("/transactions/set-included")
+    def set_included_many(ids: str = Form(""), included: int = Form(1), back: str = Form("/transactions")):
+        vendors.set_included_ids(conn, [int(i) for i in ids.split(",") if i.isdigit()], bool(included))
+        return RedirectResponse(back if back.startswith("/") and not back.startswith("//") else "/transactions", status_code=303)
 
     @app.get("/formats", response_class=HTMLResponse)
     def formats(request: Request):
@@ -276,7 +297,8 @@ def create_app(
             s=vendors.summary(conn, year, only),
             show=show,
             years=vendors.years(conn) or [year],
-            unassigned=vendors.unassigned(conn, year),
+            unassigned=(unassigned := vendors.unassigned(conn, year)),
+            unassigned_groups=vendors.group_by_merchant(unassigned),
             year_end=vendors.year_end_check(conn, year),
             fx_method=fx_method,
             annual_rate=annual_rate,
@@ -331,11 +353,6 @@ def create_app(
     def covers(txn_id: int, months: str = Form(""), back: str = Form("/transactions")):
         vendors.set_service_months(conn, txn_id, int(months) if months.isdigit() else None)
         return RedirectResponse(back, status_code=303)
-
-    @app.post("/transactions/include-all")
-    def include_all(account_id: str = Form(""), month: str = Form(""), included: int = Form(1)):
-        vendors.set_included_where(conn, bool(included), int(account_id) if account_id.isdigit() else None, month or None)
-        return RedirectResponse(f"/transactions?account_id={account_id}&month={month}", status_code=303)
 
     @app.post("/accounts/{account_id}/default")
     def account_default(account_id: int, include_by_default: int = Form(1)):
