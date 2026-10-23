@@ -5,6 +5,9 @@
   <p>Added <strong>{{ added }}</strong> transactions to {{ account.name }}.
   {% if skipped %}Skipped {{ skipped }} already imported.{% endif %}</p>
   {% if missing %}<p class="warn">{{ missing }} USD transaction(s) couldn't be converted to CAD because Bank of Canada rates weren't reachable. Use "Fetch rates now" on the home page when you're online.</p>{% endif %}
+  <form class="inline" method="post" action="/batches/{{ batch_id }}/delete"
+    onsubmit="return confirm({{ ('Remove the ' ~ added ~ ' transactions added from ' ~ filename ~ '?')|tojson|forceescape }})">
+    <button class="secondary">Undo this import</button></form>
   <p><a href="/transactions?account_id={{ account.id }}">View transactions</a> · <a href="/import?account_id={{ account.id }}">Import another file</a></p>
 </div>
 {% endblock %}

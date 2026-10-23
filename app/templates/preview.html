@@ -7,6 +7,7 @@
 {% endmacro %}
 {% block content %}
 <h1>Check the mapping for {{ account.name }} ({{ account.currency }})</h1>
+{% for w in warnings %}<div class="card alert"><strong>Check the card.</strong> {{ w }} <a href="/import">Pick a different card</a></div>{% endfor %}
 <form class="card" method="post" action="/import/confirm">
   <input type="hidden" name="account_id" value="{{ account.id }}">
   <input type="hidden" name="filename" value="{{ filename }}">

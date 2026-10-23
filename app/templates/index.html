@@ -48,13 +48,13 @@
 {% endif %}
 
 {% if batches %}
-<h2>Recent imports</h2>
+<h2>Recent imports <a class="small" href="/imports">See all imports</a></h2>
 <table>
   <tr><th>When</th><th>Card</th><th>File</th><th class="num">Rows added</th><th></th></tr>
   {% for b in batches %}
   <tr>
     <td>{{ b.imported_at }}</td><td>{{ b.account }}</td><td>{{ b.filename }}</td><td class="num">{{ b.row_count }}</td>
-    <td><form class="inline" method="post" action="/batches/{{ b.id }}/delete" onsubmit="return confirm('Remove the transactions from this import?')"><button class="link">Undo</button></form></td>
+    <td><form class="inline" method="post" action="/batches/{{ b.id }}/delete" onsubmit="return confirm('Remove the transactions from this import?')"><button class="link">Remove</button></form></td>
   </tr>
   {% endfor %}
 </table>

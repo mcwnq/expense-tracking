@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Imports</h1>
+<p class="muted">Every file you've imported. Remove an import to delete the transactions it added, for example a file imported to the wrong card. Lines that were skipped as duplicates belong to an earlier import and stay.</p>
+{% if batches %}
+<table>
+  <tr><th>When</th><th>Card</th><th>File</th><th class="num">Transactions</th><th></th></tr>
+  {% for b in batches %}
+  <tr>
+    <td>{{ b.imported_at }}</td><td>{{ b.account }} ({{ b.currency }})</td><td>{{ b.filename }}</td><td class="num">{{ b.n }}</td>
+    <td><form class="inline" method="post" action="/batches/{{ b.id }}/delete"
+      onsubmit="return confirm({{ ('Remove the ' ~ b.n ~ ' transactions added from ' ~ b.filename ~ ' to ' ~ b.account ~ '?')|tojson|forceescape }})">
+      <input type="hidden" name="back" value="/imports"><button class="link">Remove</button></form></td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}<p>No imports yet. <a href="/import">Import a CSV</a></p>{% endif %}
+{% endblock %}
