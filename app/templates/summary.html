@@ -4,16 +4,17 @@
 <div class="toolbar">
   <div>
     <h1 style="margin:0">Business expenses {{ s.year }}</h1>
-    <p class="muted" style="margin:4px 0 0">Grouped by vendor, all amounts in CAD. Personal spending and card payments are left out.</p>
+    <p class="muted" style="margin:4px 0 0">Grouped by vendor{% if cur != "split" %}, amounts in {{ cur }}{% endif %}. Personal spending and card payments are left out.</p>
   </div>
   <form method="get" style="display:flex; gap:8px; align-items:flex-end">
     <div><label>Tax year</label><select name="year" onchange="this.form.requestSubmit()">{% for y in years %}<option {% if y == s.year %}selected{% endif %}>{{ y }}</option>{% endfor %}</select></div>
-    <a href="/summary.csv?year={{ s.year }}">Export CSV</a>
+    <input type="hidden" name="cur" value="{{ cur }}"><input type="hidden" name="show" value="{{ show }}">
+    <a href="/summary.csv?year={{ s.year }}&cur={{ 'USD' if cur == 'USD' else 'CAD' }}">Export CSV</a>
   </form>
 </div>
 
 <div class="kpis">
-  <div class="kpi"><div class="label">Total expenses</div><div class="value">${{ s.total|money }}</div></div>
+  <div class="kpi"><div class="label">Total expenses ({{ s.currency }})</div><div class="value">${{ s.total|money }}</div></div>
   <div class="kpi"><div class="label">Recurring · {{ s.count_for("recurring") }} vendors</div><div class="value">${{ s.total_for("recurring")|money }}</div></div>
   <div class="kpi"><div class="label">One-time · {{ s.count_for("one-time") }} vendors</div><div class="value">${{ s.total_for("one-time")|money }}</div></div>
   <div class="kpi {% if unassigned %}attention{% endif %}"><div class="label">Need a vendor</div><div class="value">{{ unassigned|length }}</div>{% if unassigned %}<a href="#unassigned" style="color:inherit">Assign them</a>{% endif %}</div>
@@ -37,16 +38,11 @@
 {% endif %}
 {% if unconverted %}<p class="warn">{{ unconverted }} USD transaction(s) this year have no CAD amount yet and aren't counted. Use "Fetch rates now" on the Cards page.</p>{% endif %}
 
-<div class="toolbar">
-  <h2 style="margin:0">Monthly totals by vendor</h2>
-  <div class="segmented">
-    <a href="?year={{ s.year }}" class="{% if not show %}on{% endif %}">All</a><a href="?year={{ s.year }}&show=recurring" class="{% if show == 'recurring' %}on{% endif %}">Recurring</a><a href="?year={{ s.year }}&show=one-time" class="{% if show == 'one-time' %}on{% endif %}">One-time</a>
-  </div>
-</div>
+{% macro pivot(sm) %}
 <div class="scroll">
 <table class="pivot">
   <thead><tr><th>Vendor</th><th>Type</th>{% for m in ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"] %}<th class="num">{{ m }}</th>{% endfor %}<th class="num">Year</th></tr></thead>
-  {% for g in s.groups %}
+  {% for g in sm.groups %}
   <tbody>
     <tr class="group"><th colspan="14">{{ g.name }}</th><td class="num">{{ g.total|money }}</td></tr>
     {% for v in g.vendors %}
@@ -59,11 +55,29 @@
     {% endfor %}
   </tbody>
   {% else %}
-  <tbody><tr><td colspan="15" class="muted">No assigned expenses for {{ s.year }} yet.</td></tr></tbody>
+  <tbody><tr><td colspan="15" class="muted">No assigned expenses{% if cur == "split" %} charged in {{ sm.currency }}{% endif %} for {{ sm.year }} yet.</td></tr></tbody>
   {% endfor %}
-  <tfoot><tr><th>Monthly total</th><td></td>{% for c in s.month_totals %}<td class="num">{{ c|money if c else "—" }}</td>{% endfor %}<td class="num">{{ s.month_totals|sum|money }}</td></tr></tfoot>
+  <tfoot><tr><th>Monthly total</th><td></td>{% for c in sm.month_totals %}<td class="num">{{ c|money if c else "—" }}</td>{% endfor %}<td class="num">{{ sm.month_totals|sum|money }}</td></tr></tfoot>
 </table>
 </div>
+{% endmacro %}
+<div class="toolbar">
+  <h2 style="margin:0">Monthly totals by vendor</h2>
+  <div style="display:flex; flex-wrap:wrap; gap:12px">
+    <div class="segmented" role="group" aria-label="Currency">
+      <a href="?year={{ s.year }}&show={{ show }}&cur=split" class="{% if cur == 'split' %}on{% endif %}">USD and CAD separately</a><a href="?year={{ s.year }}&show={{ show }}&cur=CAD" class="{% if cur == 'CAD' %}on{% endif %}">All in CAD</a><a href="?year={{ s.year }}&show={{ show }}&cur=USD" class="{% if cur == 'USD' %}on{% endif %}">All in USD</a>
+    </div>
+    <div class="segmented" role="group" aria-label="Type">
+      <a href="?year={{ s.year }}&cur={{ cur }}" class="{% if not show %}on{% endif %}">All</a><a href="?year={{ s.year }}&show=recurring&cur={{ cur }}" class="{% if show == 'recurring' %}on{% endif %}">Recurring</a><a href="?year={{ s.year }}&show=one-time&cur={{ cur }}" class="{% if show == 'one-time' %}on{% endif %}">One-time</a>
+    </div>
+  </div>
+</div>
+{% if cur == "split" %}<p class="muted">Each table shows only the charges made in that currency, in that currency. The totals above are everything converted to CAD.</p>{% endif %}
+{% if cur == "USD" %}<p class="muted">CAD charges are converted to USD at the same Bank of Canada rate used for {{ s.year }} ({{ "annual average" if fx_method == "annual" else "daily" }}).{% if s.unconverted %} <span class="warn">{{ s.unconverted }} line(s) have no rate yet and aren't counted.</span>{% endif %}</p>{% endif %}
+{% for title, sm in tables %}
+{% if title %}<h3>{{ title }} · ${{ sm.total|money }} {{ sm.currency }}</h3>{% endif %}
+{{ pivot(sm) }}
+{% endfor %}
 
 {% if year_end %}
 <h2 id="year-end">Year-end check</h2>
