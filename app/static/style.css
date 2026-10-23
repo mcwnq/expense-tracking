@@ -40,4 +40,4 @@ tfoot td, tfoot th { border-top:2px solid var(--fg); font-weight:600; }
 .segmented a { display:inline-block; padding:6px 12px; border:1px solid var(--line); background:#fff; color:var(--fg); text-decoration:none; }
 .segmented a.on { background:var(--fg); color:#fff; border-color:var(--fg); }
 tr.excluded td { color:var(--muted); text-decoration:line-through; }
-tr.excluded td:last-child { text-decoration:none; }
+tr.excluded td:nth-child(2), tr.excluded td:nth-child(10), tr.excluded td:last-child { text-decoration:none; }

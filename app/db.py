@@ -115,4 +115,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         # many months starting on the tax date. NULL = expensed on the tax date.
         conn.execute("ALTER TABLE transactions ADD COLUMN service_months INTEGER")
         conn.execute("PRAGMA user_version = 4")
+    if version < 5:
+        # Whether newly imported transactions from a card start out included in
+        # business totals (a mostly-personal card can default to excluded).
+        conn.execute("ALTER TABLE accounts ADD COLUMN include_by_default INTEGER NOT NULL DEFAULT 1")
+        conn.execute("PRAGMA user_version = 5")
     conn.commit()

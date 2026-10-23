@@ -297,6 +297,22 @@ def set_service_months(conn: sqlite3.Connection, txn_id: int, months: int | None
     conn.commit()
 
 
+def set_included_where(
+    conn: sqlite3.Connection, included: bool, account_id: int | None = None, month: str | None = None
+) -> int:
+    """Include or exclude every transaction matching the Transactions page filters."""
+    sql, args = "UPDATE transactions SET excluded = ? WHERE 1=1", [0 if included else 1]
+    if account_id:
+        sql += " AND account_id = ?"
+        args.append(account_id)
+    if month:
+        sql += " AND substr(tax_date, 1, 7) = ?"
+        args.append(month)
+    n = conn.execute(sql, args).rowcount
+    conn.commit()
+    return n
+
+
 def set_excluded(conn: sqlite3.Connection, txn_id: int, excluded: bool) -> None:
     """Leave one transaction out of business totals (or bring it back)."""
     conn.execute("UPDATE transactions SET excluded = ? WHERE id = ?", (int(excluded), txn_id))
