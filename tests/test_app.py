@@ -389,3 +389,37 @@ def test_imports_page_shows_rows_in_file(tmp_path):
     rows = re.findall(r'<td class="num[^"]*">([^<]*)</td>', page)
     assert rows[:3] == ["4", "1", "2"]  # year.csv: 4 data rows, 1 added, 2 in sep.csv
     assert rows[3:6] == ["2", "2", ""]  # sep.csv
+
+
+def test_fill_row_counts_for_older_imports(tmp_path):
+    from app import db
+    path = tmp_path / "t.db"
+    client = TestClient(create_app(path, fetcher=None))
+    conn = db.connect(path)
+    client.post("/accounts", data={"name": "Visa", "currency": "CAD"})
+    client.post("/accounts", data={"name": "Amex", "currency": "CAD"})
+    base = {"date_col": "Date", "description_col": "Description", "amount_col": "Amount",
+            "charges_positive": 1, "has_header": 1, "format_name": "Visa"}
+    sep = "Date,Description,Amount\n2026-09-05,NINJATRADER,99.00\n2026-09-20,CME DATA,12.50\n"
+    year = sep + "2026-10-05,NINJATRADER,99.00\n2026-10-06,PENDING,\n"
+    client.post("/import/confirm", data={**base, "account_id": 1, "filename": "sep.csv", "csv_text": sep})
+    client.post("/import/confirm", data={**base, "account_id": 1, "filename": "year.csv", "csv_text": year})
+    client.post("/import/confirm", data={**base, "account_id": 2, "filename": "amex.csv", "csv_text": sep})
+    conn.execute("UPDATE import_batches SET file_rows = NULL")
+    conn.commit()
+    before = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+
+    other = "Date,Description,Amount\n2026-11-01,SOMETHING ELSE,5.00\n"
+    page = client.post("/imports/row-counts", files=[
+        ("file", ("year-again.csv", year, "text/csv")),
+        ("file", ("sep-again.csv", sep, "text/csv")),
+        ("file", ("other.csv", other, "text/csv")),
+        ("file", ("odd.csv", "A,B\n1,2\n", "text/csv")),
+    ]).text
+    rows = {r["filename"]: (r["account_id"], r["file_rows"]) for r in
+            conn.execute("SELECT filename, account_id, file_rows FROM import_batches")}
+    # year-again fills only year.csv, though sep.csv's lines are inside it; sep-again fills sep + amex
+    assert rows == {"sep.csv": (1, 2), "year.csv": (1, 4), "amex.csv": (2, 2)}
+    assert "year.csv on Visa" in page and "amex.csv on Amex" in page
+    assert "Doesn&#39;t match any import" in page and "No saved format matches" in page
+    assert conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] == before
