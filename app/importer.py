@@ -329,6 +329,7 @@ def save(
             ),
         )
         added += cur.rowcount
+        conn.execute("INSERT OR IGNORE INTO batch_lines (batch_id, dedupe_key) VALUES (?, ?)", (batch_id, key))
     conn.execute("UPDATE import_batches SET row_count = ? WHERE id = ?", (added, batch_id))
     conn.commit()
     return added, len(rows) - added, batch_id
@@ -368,6 +369,22 @@ def found_on_other_cards(conn: sqlite3.Connection, account_id: int, rows: list[P
         ):
             counts[hit["name"]] += 1
     return counts.most_common()
+
+
+def remove_batch(conn: sqlite3.Connection, batch_id: int) -> int:
+    """Undo an import. A line that another remaining import's file also had is
+    kept and moved to that import; the rest are deleted. Returns lines deleted."""
+    conn.execute(
+        "UPDATE transactions SET batch_id = (SELECT max(l.batch_id) FROM batch_lines l "
+        "  WHERE l.dedupe_key = transactions.dedupe_key AND l.batch_id != ?) "
+        "WHERE batch_id = ? AND EXISTS (SELECT 1 FROM batch_lines l "
+        "  WHERE l.dedupe_key = transactions.dedupe_key AND l.batch_id != ?)",
+        (batch_id, batch_id, batch_id),
+    )
+    deleted = conn.execute("DELETE FROM transactions WHERE batch_id = ?", (batch_id,)).rowcount
+    conn.execute("DELETE FROM import_batches WHERE id = ?", (batch_id,))
+    conn.commit()
+    return deleted
 
 
 def add_manual(conn: sqlite3.Connection, account: sqlite3.Row, on: date, description: str, amount_cents: int) -> int:

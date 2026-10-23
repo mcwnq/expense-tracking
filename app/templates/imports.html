@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Imports</h1>
-<p class="muted">Every file you've imported. Remove an import to delete the transactions it added, for example a file imported to the wrong card. Lines that were skipped as duplicates belong to an earlier import and stay.</p>
+<p class="muted">Every file you've imported. Remove an import to delete the transactions it added, for example a file imported to the wrong card. Lines that another import's file also contains (overlapping statements) are kept.</p>
 {% if batches %}
 <table>
   <tr><th>When</th><th>Card</th><th>File</th><th class="num">Transactions</th><th></th></tr>

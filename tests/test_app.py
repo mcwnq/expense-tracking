@@ -334,3 +334,41 @@ def test_summary_split_by_currency_and_all_in_usd(tmp_path):
     assert "Charged in USD · $100.00 USD" in r.text and "Charged in CAD · $50.00 CAD" in r.text
     assert "All charges in USD · $140.00 USD" in r.text  # 100 USD + 50 CAD / 1.25
     assert "140.00" in client.get("/summary.csv?year=2026&cur=USD").text
+
+
+def test_removing_an_import_keeps_lines_a_later_import_also_had(tmp_path):
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=None))
+    client.post("/accounts", data={"name": "Visa", "currency": "CAD"})
+    base = {"account_id": 1, "date_col": "Date", "description_col": "Description", "amount_col": "Amount",
+            "charges_positive": 1, "has_header": 1, "format_name": "Visa"}
+    sep = "Date,Description,Amount\n2026-09-05,NINJATRADER,99.00\n2026-09-20,CME DATA,12.50\n"
+    year = sep + "2026-10-05,NINJATRADER,99.00\n"  # overlaps September
+    client.post("/import/confirm", data={**base, "filename": "sep.csv", "csv_text": sep})
+    r = client.post("/import/confirm", data={**base, "filename": "year.csv", "csv_text": year})
+    assert "Added <strong>1</strong>" in r.text and "Skipped 2" in r.text
+
+    # removing September keeps its lines, because the year file has them too
+    client.post("/batches/1/delete", data={"back": "/imports"})
+    page = client.get("/transactions").text
+    assert "3 transactions" in page and "2026-09-20" in page
+    assert "year.csv" in client.get("/imports").text and "sep.csv" not in client.get("/imports").text
+    # removing the year file then removes everything
+    client.post("/batches/2/delete", data={"back": "/imports"})
+    assert "0 transactions" in client.get("/transactions").text
+
+
+def test_migration_records_lines_of_existing_imports(tmp_path):
+    from app import db
+
+    path = tmp_path / "old.db"
+    conn = db.connect(path)
+    conn.execute("INSERT INTO accounts (name, currency) VALUES ('Visa', 'CAD')")
+    conn.execute("INSERT INTO import_batches (account_id, filename) VALUES (1, 'a.csv')")
+    conn.execute("INSERT INTO transactions (account_id, batch_id, txn_date, tax_date, description, amount_cents, "
+                 "currency, cad_cents, dedupe_key) VALUES (1, 1, '2026-01-01', '2026-01-01', 'X', 100, 'CAD', 100, 'k1')")
+    conn.execute("DELETE FROM batch_lines")
+    conn.execute("PRAGMA user_version = 7")
+    conn.commit()
+    conn.close()
+    conn = db.connect(path)
+    assert [tuple(r) for r in conn.execute("SELECT batch_id, dedupe_key FROM batch_lines")] == [(1, "k1")]
