@@ -11,7 +11,7 @@ pip install -r requirements.txt
 python -m app
 ```
 
-On Windows with the Python install manager, use `py` instead: `py -m pip install -r requirements.txt` then `py -m app`.
+On Windows, just double-click **Start Expense Tracker.bat**: it installs anything missing, starts the app and opens your browser. Close the black window to stop the app. For a desktop shortcut, right-click the file → **Show more options** → **Send to** → **Desktop (create shortcut)**. (Manually: `py -m pip install -r requirements.txt` then `py -m app`.)
 
 Then open http://127.0.0.1:8000. Your data is stored in `Documents/ExpenseTracker/expenses.db` in your user folder, so every downloaded copy of the app uses the same data (set `EXPENSE_DB=/path/to/file.db` to put it somewhere else). If an older version left an `expenses.db` in the folder you start the app from, it is copied there automatically the first time. The data never leaves your machine; the only network calls fetch USD→CAD rates from the Bank of Canada.
 
