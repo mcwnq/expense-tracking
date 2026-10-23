@@ -57,6 +57,14 @@ def test_refund_nets_against_charge(tmp_path):
 def test_suggest_pattern():
     assert vendors.suggest_pattern("MFFU*EVAL 50K 8443") == "MFFU"
     assert vendors.suggest_pattern("AMZN MKTP CA 2K91") == "AMZN MKTP"
+    # merchants behind a payment processor are kept apart
+    assert vendors.suggest_pattern("PAYPAL *TRADINGVIEW 4029357733 CA") == "TRADINGVIEW"
+    assert vendors.suggest_pattern("PAYPAL *ACME DATA FEED") == "ACME DATA"
+    assert vendors.suggest_pattern("PP*BOOKMAP") == "BOOKMAP"
+    assert vendors.suggest_pattern("SQ *COFFEE HUT") == "COFFEE HUT"
+    assert vendors.suggest_pattern("PAYPAL ACMEDATA") == "ACMEDATA"
+    assert vendors.suggest_pattern("PAYPAL *") == "PAYPAL"
+    assert vendors.suggest_pattern("7-ELEVEN #123") == "ELEVEN"
 
 
 def test_detect_recurrence():

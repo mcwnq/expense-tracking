@@ -7,6 +7,7 @@ to a different vendor than "APEX".
 """
 
 import calendar
+import itertools
 import re
 import sqlite3
 from dataclasses import dataclass, field
@@ -116,10 +117,25 @@ def apply_rules(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+# Payment processors that put their own name before the merchant's,
+# e.g. "PAYPAL *TRADINGVIEW" or "SQ *COFFEE HUT".
+PROCESSORS = {"PAYPAL", "PP", "SQ", "SP", "TST", "PADDLE", "PADDLE.NET", "FS", "STRIPE", "GOOGLE", "2CO", "DRI"}
+
+
 def suggest_pattern(description: str) -> str:
     """A starting rule for an unassigned description: its leading words, without
-    reference numbers. "MFFU*EVAL 50K 8443" -> "MFFU"."""
-    first = re.split(r"[*#]", description.upper(), maxsplit=1)[0]
+    reference numbers. "MFFU*EVAL 50K 8443" -> "MFFU". Behind a payment processor
+    it's the merchant: "PAYPAL *TRADINGVIEW 4029357733" -> "TRADINGVIEW"."""
+    text = description.upper()
+    parts = [p.strip() for p in re.split(r"[*#]", text)]
+    head = parts[0].split()
+    if len(parts) > 1 and parts[0] in PROCESSORS and parts[1]:
+        text = "*".join(parts[1:])  # "PAYPAL *MERCHANT ..."
+    elif len(head) > 1 and head[0] in PROCESSORS:
+        text = text.split(None, 1)[1]  # "PAYPAL MERCHANT ..."
+    first = re.split(r"[*#]", text, maxsplit=1)[0]
+    # stop at the first reference or phone number
+    first = " ".join(itertools.takewhile(lambda t: not re.search(r"\d", t), first.split())) or first
     words = [w for w in re.findall(r"[A-Z][A-Z.&'-]*", first) if len(w) > 1]
     return " ".join(words[:2]) or description.upper().strip()
 
