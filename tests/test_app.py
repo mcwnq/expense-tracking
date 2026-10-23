@@ -117,3 +117,31 @@ def test_covers_route(tmp_path):
     r = client.get("/summary?year=2026")
     assert "185.00" in r.text and "$180.00 paid in 2026 counts in later years" in r.text
     assert "$180.00 paid in earlier years counts in 2027" in client.get("/summary?year=2027").text
+
+
+def test_include_all_and_card_default(tmp_path):
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=None))
+    client.post("/accounts", data={"name": "TD", "currency": "CAD"})
+    client.post("/accounts", data={"name": "Amex", "currency": "CAD"})
+    client.post("/accounts/1/default", data={"include_by_default": 0})
+    base = {"filename": "a.csv", "date_col": "Date", "description_col": "Description", "amount_col": "Amount",
+            "charges_positive": 1, "has_header": 1, "format_name": "x"}
+    td = "Date,Description,Amount\n2026-03-02,GROCERY STORE,50.00\n2026-03-03,MYSTERY SHOP,20.00\n"
+    amex = "Date,Description,Amount\n2026-03-04,OTHER SHOP,10.00\n"
+    client.post("/import/confirm", data={**base, "account_id": 1, "csv_text": td})
+    client.post("/import/confirm", data={**base, "account_id": 2, "csv_text": amex})
+
+    # TD lines start excluded, so they don't ask for a vendor; Amex does
+    r = client.get("/summary?year=2026")
+    assert "OTHER SHOP" in r.text and "GROCERY STORE" not in r.text and "MYSTERY SHOP" not in r.text
+
+    r = client.get("/transactions?account_id=1&month=")
+    assert "0 included" in r.text and 'aria-label="Include all shown transactions">' in r.text
+
+    # include all TD lines, then the "needs a vendor" list picks them up
+    r = client.post("/transactions/include-all", data={"account_id": "1", "month": "", "included": 1})
+    assert "2 included" in r.text
+    assert "GROCERY STORE" in client.get("/summary?year=2026").text
+    # include-all only touched the filtered card
+    client.post("/transactions/include-all", data={"account_id": "1", "month": "", "included": 0})
+    assert "1 included" in client.get("/transactions?account_id=&month=").text

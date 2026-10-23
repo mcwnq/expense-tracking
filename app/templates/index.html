@@ -3,13 +3,18 @@
 <h1>Cards</h1>
 {% if accounts %}
 <table>
-  <tr><th>Card</th><th>Currency</th><th class="num">Transactions</th><th>From</th><th>To</th><th></th></tr>
+  <tr><th>Card</th><th>Currency</th><th class="num">Transactions</th><th>From</th><th>To</th><th>New imports start as</th><th></th></tr>
   {% for a in accounts %}
   <tr>
     <td><a href="/transactions?account_id={{ a.id }}">{{ a.name }}</a></td>
     <td>{{ a.currency }}</td>
     <td class="num">{{ a.n }}</td>
     <td>{{ a.first or "" }}</td><td>{{ a.last or "" }}</td>
+    <td><form class="inline" method="post" action="/accounts/{{ a.id }}/default">
+      <select name="include_by_default" onchange="this.form.submit()" aria-label="Default for new imports from {{ a.name }}">
+        <option value="1" {% if a.include_by_default %}selected{% endif %}>Included</option>
+        <option value="0" {% if not a.include_by_default %}selected{% endif %}>Excluded</option>
+      </select></form></td>
     <td><a href="/import?account_id={{ a.id }}">Import CSV</a></td>
   </tr>
   {% endfor %}

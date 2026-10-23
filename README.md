@@ -11,9 +11,9 @@ pip install -r requirements.txt
 python -m app
 ```
 
-On Windows with the Python install manager, use `py` instead: `py -m pip install -r requirements.txt` then `py -m app`.
+On Windows, just double-click **Start Expense Tracker.bat**: it installs anything missing, starts the app and opens your browser. Close the black window to stop the app. For a desktop shortcut, right-click the file → **Show more options** → **Send to** → **Desktop (create shortcut)**. (Manually: `py -m pip install -r requirements.txt` then `py -m app`.)
 
-Then open http://127.0.0.1:8000. Your data is stored in `expenses.db` in the folder you run from (set `EXPENSE_DB=/path/to/file.db` to put it somewhere else). It never leaves your machine; the only network call is fetching USD→CAD rates from the Bank of Canada.
+Then open http://127.0.0.1:8000. Your data is stored in `Documents/ExpenseTracker/expenses.db` in your user folder, so every downloaded copy of the app uses the same data (set `EXPENSE_DB=/path/to/file.db` to put it somewhere else). If an older version left an `expenses.db` in the folder you start the app from, it is copied there automatically the first time. The data never leaves your machine; the only network calls fetch USD→CAD rates from the Bank of Canada.
 
 ## Step 1: import
 
@@ -30,7 +30,7 @@ Then open http://127.0.0.1:8000. Your data is stored in `expenses.db` in the fol
 - **Tax date and year-end check**: card dates are often UTC, so an evening charge on Dec 31 can post as Jan 1. Each transaction has a "counts on" date (defaults to the card date, editable on Transactions) that sets its tax year, month and USD rate. The summary lists Jan 1–2 charges with a one-click move to Dec 31 of the prior year.
 - **Annual average rate**: per tax year, convert USD at the daily Bank of Canada rate or at the annual average rate (fetched from the Bank of Canada once published, or typed in).
 - **Prepaid charges**: set "Covers" on a transaction (e.g. 12 months for an annual TradingView plan) and the amount is spread by day over that period, so only the part used in each tax year counts there. The summary shows how much moved into or out of the year.
-- **Exclude non-business lines**: tick "Exclude" on any transaction (or "Exclude this line" in the unassigned list) to leave it out of all totals. To exclude every charge from a merchant, give its vendor the category "Personal (exclude)".
+- **Include only business lines**: each transaction has an "Include" checkbox; "Include all" in the header ticks or clears every transaction matching the current card/month filter. On the Cards page, set whether new imports from a card start included (e.g. a business USD card) or excluded (e.g. a mostly personal card). Only included transactions count in totals or ask for a vendor. To exclude every charge from a merchant, give its vendor the category "Personal (exclude)".
 - **Unassigned transactions**: listed under the summary with a one-click form that saves a rule; mark personal spending as "Personal (exclude)".
 
 ## Roadmap

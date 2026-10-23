@@ -182,6 +182,7 @@ def create_app(
             )
         ]
         total_cad = sum(r["cad_cents"] or 0 for r in rows if not r["excluded"])
+        all_included = bool(rows) and not any(r["excluded"] for r in rows)
         return render(
             request,
             "transactions.html",
@@ -191,6 +192,8 @@ def create_app(
             account_id=account_id,
             month=month,
             total_cad=total_cad,
+            all_included=all_included,
+            included_count=sum(1 for r in rows if not r["excluded"]),
         )
 
     @app.get("/formats", response_class=HTMLResponse)
@@ -285,6 +288,17 @@ def create_app(
     def covers(txn_id: int, months: str = Form(""), back: str = Form("/transactions")):
         vendors.set_service_months(conn, txn_id, int(months) if months.isdigit() else None)
         return RedirectResponse(back, status_code=303)
+
+    @app.post("/transactions/include-all")
+    def include_all(account_id: str = Form(""), month: str = Form(""), included: int = Form(1)):
+        vendors.set_included_where(conn, bool(included), int(account_id) if account_id.isdigit() else None, month or None)
+        return RedirectResponse(f"/transactions?account_id={account_id}&month={month}", status_code=303)
+
+    @app.post("/accounts/{account_id}/default")
+    def account_default(account_id: int, include_by_default: int = Form(1)):
+        conn.execute("UPDATE accounts SET include_by_default = ? WHERE id = ?", (include_by_default, account_id))
+        conn.commit()
+        return RedirectResponse("/", status_code=303)
 
     @app.post("/transactions/{txn_id}/exclude")
     def exclude(txn_id: int, excluded: int = Form(0), back: str = Form("/transactions")):
