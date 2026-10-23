@@ -13,7 +13,7 @@ python -m app
 
 On Windows with the Python install manager, use `py` instead: `py -m pip install -r requirements.txt` then `py -m app`.
 
-Then open http://127.0.0.1:8000. Your data is stored in `expenses.db` in the folder you run from (set `EXPENSE_DB=/path/to/file.db` to put it somewhere else). It never leaves your machine; the only network call is fetching USD→CAD rates from the Bank of Canada.
+Then open http://127.0.0.1:8000. Your data is stored in `Documents/ExpenseTracker/expenses.db` in your user folder, so every downloaded copy of the app uses the same data (set `EXPENSE_DB=/path/to/file.db` to put it somewhere else). If an older version left an `expenses.db` in the folder you start the app from, it is copied there automatically the first time. The data never leaves your machine; the only network calls fetch USD→CAD rates from the Bank of Canada.
 
 ## Step 1: import
 

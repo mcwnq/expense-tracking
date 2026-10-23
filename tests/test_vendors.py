@@ -134,3 +134,17 @@ def test_prepaid_annual_subscription_spans_years(tmp_path):
     assert vendors.years(conn) == [2027, 2026]
     vendors.set_service_months(conn, tid, None)
     assert vendors.summary(conn, 2026).total == 36500
+
+
+def test_default_db_path_moves_legacy_file(tmp_path, monkeypatch):
+    monkeypatch.delenv("EXPENSE_DB", raising=False)
+    home_db = tmp_path / "home" / "Documents" / "ExpenseTracker" / "expenses.db"
+    monkeypatch.setattr(db, "HOME_DB_PATH", home_db)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "expenses.db").write_bytes(b"old data")
+    assert db.default_db_path() == home_db and home_db.read_bytes() == b"old data"
+    # an existing home database is never overwritten
+    (tmp_path / "expenses.db").write_bytes(b"newer copy")
+    assert db.default_db_path() == home_db and home_db.read_bytes() == b"old data"
+    monkeypatch.setenv("EXPENSE_DB", str(tmp_path / "x.db"))
+    assert db.default_db_path() == tmp_path / "x.db"

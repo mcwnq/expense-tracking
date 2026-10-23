@@ -1,10 +1,26 @@
 """SQLite storage. Money is stored as integer cents to avoid float rounding."""
 
 import os
+import shutil
 import sqlite3
 from pathlib import Path
 
-DEFAULT_DB_PATH = Path(os.environ.get("EXPENSE_DB", "expenses.db"))
+# One fixed home for the data, so every downloaded copy of the app shares it.
+# EXPENSE_DB overrides it.
+HOME_DB_PATH = Path.home() / "Documents" / "ExpenseTracker" / "expenses.db"
+
+
+def default_db_path() -> Path:
+    if os.environ.get("EXPENSE_DB"):
+        return Path(os.environ["EXPENSE_DB"])
+    if not HOME_DB_PATH.exists():
+        HOME_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        # Earlier versions kept the database in the folder the app was started from
+        legacy = Path("expenses.db")
+        if legacy.exists():
+            shutil.copy2(legacy, HOME_DB_PATH)
+            print(f"Copied {legacy.resolve()} to {HOME_DB_PATH}")
+    return HOME_DB_PATH
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS csv_formats (
@@ -79,7 +95,9 @@ CREATE TABLE IF NOT EXISTS fx_rates (
 
 
 def connect(path: Path | str | None = None) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(path or DEFAULT_DB_PATH), check_same_thread=False)
+    path = path or default_db_path()
+    print(f"Using database {Path(path).resolve()}")
+    conn = sqlite3.connect(str(path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
