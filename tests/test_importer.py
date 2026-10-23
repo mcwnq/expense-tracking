@@ -60,7 +60,7 @@ def test_reimport_skips_duplicates_but_keeps_identical_same_day_charges(tmp_path
     m = importer.guess_mapping(HEADER_STYLE)
     rows = importer.parse(HEADER_STYLE, m)
 
-    assert importer.save(conn, account, rows, "feb.csv") == (3, 0)
-    assert importer.save(conn, account, rows, "feb.csv") == (0, 3)
+    assert importer.save(conn, account, rows, "feb.csv")[:2] == (3, 0)
+    assert importer.save(conn, account, rows, "feb.csv")[:2] == (0, 3)
     cad = [r[0] for r in conn.execute("SELECT cad_cents FROM transactions ORDER BY id")]
     assert cad == [-2500, -2500, 4000]

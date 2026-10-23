@@ -168,3 +168,30 @@ def test_edit_and_delete_card(tmp_path):
     client.post("/accounts/1/delete")
     assert "Renamed" not in client.get("/").text
     assert "NINJATRADER" not in client.get("/transactions").text
+
+
+def test_card_payments_excluded_refunds_kept_and_vendor_warning(tmp_path):
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=None))
+    client.post("/accounts", data={"name": "Visa", "currency": "CAD"})
+    data = ("Date,Description,Amount\n2026-03-02,TRADOVATE LLC,99.00\n2026-03-05,TRADOVATE LLC,99.00\n"
+            "2026-03-09,TRADOVATE REFUND,-20.00\n2026-03-15,PAYMENT - THANK YOU,-500.00\n")
+    client.post("/import/confirm", data={"account_id": 1, "filename": "a.csv", "csv_text": data, "date_col": "Date",
+                "description_col": "Description", "amount_col": "Amount", "charges_positive": 1, "has_header": 1,
+                "format_name": "x"})
+    t = client.get("/transactions").text
+    assert "3 included" in t and "net 178.00 CAD" in t   # payment excluded, refund kept
+    assert t.count("Similar charges from") == 3           # every Tradovate line warns; the payment doesn't
+    assert '\\&#34;Tradovate\\&#34; (2 more)' in t
+
+
+def test_migration_excludes_existing_payments(tmp_path):
+    import sqlite3
+    from app import db
+    path = tmp_path / "t.db"
+    conn = db.connect(path)
+    conn.execute("INSERT INTO accounts (name, currency) VALUES ('Visa', 'CAD')")
+    conn.execute("INSERT INTO transactions (account_id, txn_date, tax_date, description, amount_cents, currency, cad_cents, dedupe_key) "
+                 "VALUES (1, '2026-01-01', '2026-01-01', 'ONLINE PAYMENT 123', -5000, 'CAD', -5000, 'k')")
+    conn.execute("PRAGMA user_version = 5"); conn.commit(); conn.close()
+    conn = db.connect(path)
+    assert conn.execute("SELECT excluded FROM transactions").fetchone()[0] == 1

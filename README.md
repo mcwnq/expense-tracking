@@ -31,6 +31,7 @@ Then open http://127.0.0.1:8000. Your data is stored in `Documents/ExpenseTracke
 - **Annual average rate**: per tax year, convert USD at the daily Bank of Canada rate or at the annual average rate (fetched from the Bank of Canada once published, or typed in).
 - **Prepaid charges**: set "Covers" on a transaction (e.g. 12 months for an annual TradingView plan) and the amount is spread by day over that period, so only the part used in each tax year counts there. The summary shows how much moved into or out of the year.
 - **Include only business lines**: each transaction has an "Include" checkbox; "Include all" in the header ticks or clears every transaction matching the current card/month filter. On the Cards page, set whether new imports from a card start included (e.g. a business USD card) or excluded (e.g. a mostly personal card). Only included transactions count in totals or ask for a vendor. To exclude every charge from a merchant, give its vendor the category "Personal (exclude)".
+- **Card payments** (e.g. "PAYMENT - THANK YOU") are excluded automatically on import; refunds from merchants stay included. Unticking a line whose vendor has other included charges asks you to confirm first.
 - **Unassigned transactions**: listed under the summary with a one-click form that saves a rule; mark personal spending as "Personal (exclude)".
 
 ## Roadmap

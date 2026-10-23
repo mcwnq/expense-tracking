@@ -40,7 +40,10 @@
     <td><form class="inline" method="post" action="/transactions/{{ t.id }}/exclude">
       <input type="hidden" name="back" value="/transactions?account_id={{ account_id or '' }}&month={{ month or '' }}">
       <input type="hidden" name="excluded" value="{{ 0 if t.excluded else 1 }}">
-      <input type="checkbox" {% if not t.excluded %}checked{% endif %} onchange="this.form.submit()" aria-label="Include {{ t.description }} as a business expense" title="Business expense">
+      <input type="checkbox" {% if not t.excluded %}checked{% endif %}
+        {% if not t.excluded and t.vendor and t.vendor_included and not t.vendor_category.endswith("(exclude)") %}
+        onchange="if (confirm({{ ('Similar charges from "' ~ t.vendor ~ '" (' ~ t.vendor_included ~ ' more) are included as business expenses. Are you sure you want to exclude this one?')|tojson|forceescape }})) this.form.submit(); else this.checked = true"
+        {% else %}onchange="this.form.submit()"{% endif %} aria-label="Include {{ t.description }} as a business expense" title="Business expense">
     </form></td>
   </tr>
   {% endfor %}

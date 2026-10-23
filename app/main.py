@@ -149,8 +149,9 @@ def create_app(
 
         format_id = importer.save_format(conn, format_name, mapping, csv_text)
         conn.execute("UPDATE accounts SET last_format_id = ? WHERE id = ?", (format_id, account_id))
-        added, skipped = importer.save(conn, account, rows, filename)
+        added, skipped, batch_id = importer.save(conn, account, rows, filename)
         vendors.apply_rules(conn)
+        vendors.exclude_card_payments(conn, batch_id)
         missing = fx.fill_missing_cad(conn, fetcher) if account["currency"] == "USD" else 0
         return render(
             request, "imported.html", account=account, added=added, skipped=skipped, missing=missing
@@ -187,7 +188,11 @@ def create_app(
         # The filter form sends empty strings for "All"
         account_id = int(account_id) if account_id.isdigit() else None
         sql = (
-            "SELECT t.*, a.name AS account, v.name AS vendor FROM transactions t "
+            "SELECT t.*, a.name AS account, v.name AS vendor, v.category AS vendor_category, "
+            # other included charges from the same vendor, to warn before excluding this one
+            "(SELECT COUNT(*) FROM transactions o WHERE o.vendor_id = t.vendor_id AND o.id != t.id "
+            " AND NOT o.excluded) AS vendor_included "
+            "FROM transactions t "
             "JOIN accounts a ON a.id = t.account_id LEFT JOIN vendors v ON v.id = t.vendor_id WHERE 1=1"
         )
         args: list = []

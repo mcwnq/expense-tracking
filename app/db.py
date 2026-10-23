@@ -138,4 +138,17 @@ def _migrate(conn: sqlite3.Connection) -> None:
         # business totals (a mostly-personal card can default to excluded).
         conn.execute("ALTER TABLE accounts ADD COLUMN include_by_default INTEGER NOT NULL DEFAULT 1")
         conn.execute("PRAGMA user_version = 5")
+    if version < 6:
+        # More card-payment wordings, and exclude payments already imported
+        from .vendors import DEFAULT_VENDORS, PAYMENT_CATEGORY, apply_rules, exclude_card_payments
+
+        row = conn.execute("SELECT id FROM vendors WHERE category = ? ORDER BY id LIMIT 1", (PAYMENT_CATEGORY,)).fetchone()
+        if row:
+            patterns = next(p for _, c, _, p in DEFAULT_VENDORS if c == PAYMENT_CATEGORY)
+            conn.executemany(
+                "INSERT OR IGNORE INTO vendor_rules (pattern, vendor_id) VALUES (?, ?)", [(p, row[0]) for p in patterns]
+            )
+            apply_rules(conn)
+        exclude_card_payments(conn)
+        conn.execute("PRAGMA user_version = 6")
     conn.commit()

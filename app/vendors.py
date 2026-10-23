@@ -55,7 +55,10 @@ DEFAULT_VENDORS = [
     ("Quantower", "Software", None, ["QUANTOWER"]),
     ("ATAS", "Software", None, ["ATAS PLATFORM", "ATAS.NET"]),
     ("MotiveWave", "Software", None, ["MOTIVEWAVE"]),
-    ("Card payment", "Card payment (exclude)", None, ["PAYMENT THANK YOU", "PAYMENT - THANK YOU", "PAYMENT RECEIVED", "PAIEMENT MERCI"]),
+    ("Card payment", "Card payment (exclude)", None, [
+        "PAYMENT THANK YOU", "PAYMENT - THANK YOU", "PAYMENT RECEIVED", "PAIEMENT MERCI", "PAIEMENT - MERCI",
+        "ONLINE PAYMENT", "AUTOPAY PAYMENT", "AUTOMATIC PAYMENT", "PAYMENT FROM", "PAYMENT - ONLINE",
+    ]),
 ]
 
 
@@ -68,6 +71,25 @@ def seed_defaults(conn: sqlite3.Connection) -> None:
         vid = conn.execute("SELECT id FROM vendors WHERE name = ?", (name,)).fetchone()[0]
         for p in patterns:
             conn.execute("INSERT OR IGNORE INTO vendor_rules (pattern, vendor_id) VALUES (?, ?)", (p, vid))
+
+
+PAYMENT_CATEGORY = "Card payment (exclude)"
+
+
+def exclude_card_payments(conn: sqlite3.Connection, batch_id: int | None = None) -> int:
+    """Exclude payments made to the card (credits matched to a card-payment vendor).
+    Refunds are credits from a merchant, so they don't match and stay included."""
+    sql = (
+        "UPDATE transactions SET excluded = 1 WHERE amount_cents < 0 AND vendor_id IN "
+        "(SELECT id FROM vendors WHERE category = ?)"
+    )
+    args: list = [PAYMENT_CATEGORY]
+    if batch_id is not None:
+        sql += " AND batch_id = ?"
+        args.append(batch_id)
+    n = conn.execute(sql, args).rowcount
+    conn.commit()
+    return n
 
 
 def match_vendor(rules: list[tuple[str, int]], description: str) -> int | None:
