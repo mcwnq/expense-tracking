@@ -52,6 +52,14 @@ CREATE TABLE IF NOT EXISTS import_batches (
     row_count   INTEGER NOT NULL DEFAULT 0
 );
 
+-- Every line each import's file contained, including ones skipped because an
+-- earlier import already had them, so removing an import keeps shared lines.
+CREATE TABLE IF NOT EXISTS batch_lines (
+    batch_id   INTEGER NOT NULL REFERENCES import_batches(id) ON DELETE CASCADE,
+    dedupe_key TEXT NOT NULL,
+    PRIMARY KEY (batch_id, dedupe_key)
+);
+
 CREATE TABLE IF NOT EXISTS transactions (
     id           INTEGER PRIMARY KEY,
     account_id   INTEGER NOT NULL REFERENCES accounts(id),
@@ -162,4 +170,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "WHERE signature IS NULL"
         )
         conn.execute("PRAGMA user_version = 7")
+    if version < 8:
+        # Older imports only know the lines they added
+        conn.execute(
+            "INSERT OR IGNORE INTO batch_lines (batch_id, dedupe_key) "
+            "SELECT batch_id, dedupe_key FROM transactions WHERE batch_id IS NOT NULL"
+        )
+        conn.execute("PRAGMA user_version = 8")
     conn.commit()

@@ -513,9 +513,7 @@ def create_app(
 
     @app.post("/batches/{batch_id}/delete")
     def delete_batch(batch_id: int, back: str = Form("/")):
-        conn.execute("DELETE FROM transactions WHERE batch_id = ?", (batch_id,))
-        conn.execute("DELETE FROM import_batches WHERE id = ?", (batch_id,))
-        conn.commit()
+        importer.remove_batch(conn, batch_id)
         return RedirectResponse("/imports" if back == "/imports" else "/", status_code=303)
 
     return app
