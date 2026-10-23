@@ -6,7 +6,7 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
-from fastapi import FastAPI, Form, Request, UploadFile
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -96,22 +96,23 @@ def create_app(
         return render(request, "import.html", accounts=accounts, selected=account_id)
 
     @app.post("/import/preview", response_class=HTMLResponse)
-    async def import_preview(request: Request, account_id: int = Form(...), file: UploadFile = Form(...)):
-        text = (await file.read()).decode("utf-8-sig", errors="replace")
+    async def import_preview(request: Request, account_id: int = Form(...), file: list[UploadFile] = File(...)):
+        files = [(f.filename or "upload.csv", (await f.read()).decode("utf-8-sig", errors="replace")) for f in file]
         account = get_account(account_id)
-        fmt = importer.match_format(conn, text, prefer_id=account["last_format_id"])
+        first = files[0][1]
+        fmt = importer.match_format(conn, first, prefer_id=account["last_format_id"])
         if fmt:
             mapping, name, note = importer.Mapping.from_row(fmt), fmt["name"], f"Matched saved format \u201c{fmt['name']}\u201d."
         else:
-            mapping, name, note = importer.guess_mapping(text), f"{account['name']} format", None
-        return _preview(request, account, text, file.filename or "upload.csv", mapping, name, note)
+            mapping, name, note = importer.guess_mapping(first), f"{account['name']} format", None
+        return _preview(request, account, files, mapping, name, note)
 
     @app.post("/import/confirm", response_class=HTMLResponse)
     def import_confirm(
         request: Request,
         account_id: int = Form(...),
-        filename: str = Form(...),
-        csv_text: str = Form(...),
+        filename: list[str] = Form(...),
+        csv_text: list[str] = Form(...),
         date_col: str = Form(...),
         description_col: str = Form(...),
         amount_col: str = Form(""),
@@ -125,9 +126,10 @@ def create_app(
         action: str = Form("import"),
     ):
         account = get_account(account_id)
+        files = list(zip(filename, csv_text))
         if action == "load" and load_format_id:
             fmt = conn.execute("SELECT * FROM csv_formats WHERE id = ?", (load_format_id,)).fetchone()
-            return _preview(request, account, csv_text, filename, importer.Mapping.from_row(fmt), fmt["name"])
+            return _preview(request, account, files, importer.Mapping.from_row(fmt), fmt["name"])
         mapping = importer.Mapping(
             date_col=date_col,
             description_col=description_col,
@@ -139,55 +141,81 @@ def create_app(
             has_header=bool(has_header),
         )
         if action == "preview":
-            return _preview(request, account, csv_text, filename, mapping, format_name)
+            return _preview(request, account, files, mapping, format_name)
         if not format_name.strip():
-            return _preview(request, account, csv_text, filename, mapping, format_name, error="Give the format a name.")
-        try:
-            rows = importer.parse(csv_text, mapping)
-        except importer.CsvFormatError as e:
-            return _preview(request, account, csv_text, filename, mapping, format_name, error=str(e))
+            return _preview(request, account, files, mapping, format_name, error="Give the format a name.")
+        error = _mixed_shapes(files, mapping)
+        parsed = []
+        for name, text in files:
+            try:
+                parsed.append((name, text, importer.parse(text, mapping)))
+            except importer.CsvFormatError as e:
+                error = error or (f"{name}: {e}" if len(files) > 1 else str(e))
+        if error:
+            return _preview(request, account, files, mapping, format_name, error=error)
 
-        format_id = importer.save_format(conn, format_name, mapping, csv_text)
+        format_id = importer.save_format(conn, format_name, mapping, files[0][1])
         conn.execute("UPDATE accounts SET last_format_id = ? WHERE id = ?", (format_id, account_id))
-        added, skipped, batch_id = importer.save(
-            conn, account, rows, filename, importer.signature(csv_text, mapping.has_header)
-        )
+        results = []
+        for name, text, rows in parsed:
+            added, skipped, batch_id = importer.save(
+                conn, account, rows, name, importer.signature(text, mapping.has_header)
+            )
+            results.append({"filename": name, "added": added, "skipped": skipped, "batch_id": batch_id})
         vendors.apply_rules(conn)
-        vendors.exclude_card_payments(conn, batch_id)
+        for r in results:
+            vendors.exclude_card_payments(conn, r["batch_id"])
         missing = fx.fill_missing_cad(conn, fetcher) if account["currency"] == "USD" else 0
         return render(
-            request, "imported.html", account=account, added=added, skipped=skipped, missing=missing,
-            batch_id=batch_id, filename=filename,
+            request, "imported.html", account=account, results=results, missing=missing,
+            added=sum(r["added"] for r in results), skipped=sum(r["skipped"] for r in results),
         )
 
-    def _preview(request, account, text, filename, mapping, format_name, note=None, error=None):
-        header, _ = importer.read_rows(text, mapping.has_header)
-        rows, parse_error = [], error
+    def _mixed_shapes(files, mapping) -> str | None:
+        """Files imported together share one mapping, so they need the same columns."""
+        shapes = {importer.signature(text, mapping.has_header) for _, text in files}
+        if len(shapes) > 1:
+            return "These files don't all have the same columns. Import files from different formats separately."
+        return None
+
+    def _preview(request, account, files, mapping, format_name, note=None, error=None):
+        header, _ = importer.read_rows(files[0][1], mapping.has_header)
+        parse_error = error or _mixed_shapes(files, mapping)
+        all_rows, per_file, warnings = [], [], []
+        for name, text in files:
+            rows, file_error = [], None
+            if not parse_error:
+                try:
+                    rows = importer.parse(text, mapping)
+                except importer.CsvFormatError as e:
+                    file_error = str(e)
+            all_rows += rows
+            per_file.append({"filename": name, "rows": len(rows), "total_cents": sum(r.amount_cents for r in rows),
+                             "error": file_error})
         if not parse_error:
-            try:
-                rows = importer.parse(text, mapping)
-            except importer.CsvFormatError as e:
-                parse_error = str(e)
-        warnings = []
-        format_warning = importer.format_warning(conn, account["id"], importer.signature(text, mapping.has_header))
+            parse_error = next(
+                (f"{f['filename']}: {f['error']}" if len(files) > 1 else f["error"] for f in per_file if f["error"]),
+                None,
+            )
+        format_warning = importer.format_warning(conn, account["id"], importer.signature(files[0][1], mapping.has_header))
         if format_warning:
             warnings.append(format_warning)
-        for card, n in importer.found_on_other_cards(conn, account["id"], rows):
+        for card, n in importer.found_on_other_cards(conn, account["id"], all_rows):
             warnings.append(
                 f"{n} of these lines are already on {card} (same date, description and amount). "
-                "This file may belong to that card."
+                f"{'These files' if len(files) > 1 else 'This file'} may belong to that card."
             )
         return render(
             request,
             "preview.html",
             account=account,
-            filename=filename,
-            csv_text=text,
+            files=files,
+            per_file=per_file,
             header=header,
             mapping=mapping,
-            rows=rows[:25],
-            total_rows=len(rows),
-            total_cents=sum(r.amount_cents for r in rows),
+            rows=all_rows[:25],
+            total_rows=len(all_rows),
+            total_cents=sum(r.amount_cents for r in all_rows),
             error=parse_error,
             date_formats=importer.DATE_FORMATS,
             format_name=format_name,

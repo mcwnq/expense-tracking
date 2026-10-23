@@ -5,9 +5,22 @@
   <p>Added <strong>{{ added }}</strong> transactions to {{ account.name }}.
   {% if skipped %}Skipped {{ skipped }} already imported.{% endif %}</p>
   {% if missing %}<p class="warn">{{ missing }} USD transaction(s) couldn't be converted to CAD because Bank of Canada rates weren't reachable. Use "Fetch rates now" on the home page when you're online.</p>{% endif %}
-  <form class="inline" method="post" action="/batches/{{ batch_id }}/delete"
-    onsubmit="return confirm({{ ('Remove the ' ~ added ~ ' transactions added from ' ~ filename ~ '?')|tojson|forceescape }})">
+  {% if results|length > 1 %}
+  <table style="margin-bottom:12px">
+    <tr><th>File</th><th class="num">Added</th><th class="num">Skipped</th><th></th></tr>
+    {% for r in results %}
+    <tr><td>{{ r.filename }}</td><td class="num">{{ r.added }}</td><td class="num">{{ r.skipped }}</td>
+      <td><form class="inline" method="post" action="/batches/{{ r.batch_id }}/delete"
+        onsubmit="return confirm({{ ('Remove the ' ~ r.added ~ ' transactions added from ' ~ r.filename ~ '?')|tojson|forceescape }})">
+        <input type="hidden" name="back" value="/imports"><button class="link">Undo</button></form></td></tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  {% set r = results[0] %}
+  <form class="inline" method="post" action="/batches/{{ r.batch_id }}/delete"
+    onsubmit="return confirm({{ ('Remove the ' ~ r.added ~ ' transactions added from ' ~ r.filename ~ '?')|tojson|forceescape }})">
     <button class="secondary">Undo this import</button></form>
-  <p><a href="/transactions?account_id={{ account.id }}">View transactions</a> · <a href="/import?account_id={{ account.id }}">Import another file</a></p>
+  {% endif %}
+  <p><a href="/transactions?account_id={{ account.id }}">View transactions</a> · <a href="/import?account_id={{ account.id }}">Import more files</a></p>
 </div>
 {% endblock %}
