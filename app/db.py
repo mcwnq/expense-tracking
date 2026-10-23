@@ -177,4 +177,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "SELECT batch_id, dedupe_key FROM transactions WHERE batch_id IS NOT NULL"
         )
         conn.execute("PRAGMA user_version = 8")
+    if version < 9:
+        # Data rows in the imported file (header not counted). Unknown for older imports.
+        if "file_rows" not in [c["name"] for c in conn.execute("PRAGMA table_info(import_batches)")]:
+            conn.execute("ALTER TABLE import_batches ADD COLUMN file_rows INTEGER")
+        conn.execute("PRAGMA user_version = 9")
     conn.commit()

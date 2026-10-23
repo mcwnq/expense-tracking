@@ -301,11 +301,12 @@ def save(
     rows: list[ParsedRow],
     filename: str,
     signature: str | None = None,
+    file_rows: int | None = None,
 ) -> tuple[int, int, int]:
     """Insert rows. Returns (added, skipped_as_duplicate, batch_id)."""
     cur = conn.execute(
-        "INSERT INTO import_batches (account_id, filename, signature) VALUES (?, ?, ?)",
-        (account["id"], filename, signature),
+        "INSERT INTO import_batches (account_id, filename, signature, file_rows) VALUES (?, ?, ?, ?)",
+        (account["id"], filename, signature, file_rows),
     )
     batch_id = cur.lastrowid
     is_cad = account["currency"] == "CAD"

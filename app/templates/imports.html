@@ -2,12 +2,16 @@
 {% block content %}
 <h1>Imports</h1>
 <p class="muted">Every file you've imported. Remove an import to delete the transactions it added, for example a file imported to the wrong card. Lines that another import's file also contains (overlapping statements) are kept.</p>
+<p class="muted">Rows in file doesn't count the header. Transactions plus In another import should equal it. If it's lower (shown in orange), some rows were left out, such as rows with no amount or lines removed since. Rows in file is blank for files imported before this column was added.</p>
 {% if batches %}
 <table>
-  <tr><th>When</th><th>Card</th><th>File</th><th class="num">Transactions</th><th></th></tr>
+  <tr><th>When</th><th>Card</th><th>File</th><th class="num">Rows in file</th><th class="num">Transactions</th><th class="num">In another import</th><th></th></tr>
   {% for b in batches %}
   <tr>
-    <td>{{ b.imported_at }}</td><td>{{ b.account }} ({{ b.currency }})</td><td>{{ b.filename }}</td><td class="num">{{ b.n }}</td>
+    <td>{{ b.imported_at }}</td><td>{{ b.account }} ({{ b.currency }})</td><td>{{ b.filename }}</td>
+    <td class="num">{{ b.file_rows if b.file_rows is not none else "—" }}</td>
+    <td class="num {% if b.file_rows is not none and b.n + b.shared < b.file_rows %}warn{% endif %}">{{ b.n }}</td>
+    <td class="num">{{ b.shared or "" }}</td>
     <td><form class="inline" method="post" action="/batches/{{ b.id }}/delete"
       onsubmit="return confirm({{ ('Remove the ' ~ b.n ~ ' transactions added from ' ~ b.filename ~ ' to ' ~ b.account ~ '?')|tojson|forceescape }})">
       <input type="hidden" name="back" value="/imports"><button class="link">Remove</button></form></td>
