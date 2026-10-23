@@ -137,6 +137,8 @@ def test_include_all_and_card_default(tmp_path):
 
     r = client.get("/transactions?account_id=1&month=")
     assert "0 included" in r.text and "Include all 2 shown" in r.text and 'name="ids" value="2,1"' in r.text
+    assert 'aria-label="Include all shown transactions"' in r.text
+    assert 'aria-label="Include all shown transactions"' in client.get("/transactions?account_id=1&view=merchants").text
 
     # include all TD lines, then the "needs a vendor" list picks them up
     back = "/transactions?account_id=1&month="

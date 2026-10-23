@@ -1,4 +1,11 @@
 {% extends "base.html" %}
+{% macro include_all() %}<th style="white-space:nowrap"><form class="inline" method="post" action="/transactions/set-included">
+    <input type="hidden" name="ids" value="{{ all_ids }}"><input type="hidden" name="back" value="{{ here }}">
+    <input type="hidden" name="included" value="{{ 0 if all_included else 1 }}">
+    <label style="display:inline; color:inherit; font-size:inherit"><input type="checkbox" {% if all_included %}checked{% endif %}
+      {% if not all_included and included_count %}data-mixed{% endif %}
+      onchange="if (confirm({{ ((('Exclude' if all_included else 'Include') ~ ' all ' ~ rows|length ~ ' transactions shown?'))|tojson|forceescape }})) this.form.requestSubmit(); else this.checked = !this.checked"
+      aria-label="Include all shown transactions"> Include all</label></form></th>{% endmacro %}
 {% block content %}
 <h1>Transactions</h1>
 <form class="card" method="get">
@@ -36,7 +43,7 @@
 {% if view == "merchants" %}
 <p class="muted">Lines are grouped by vendor, or by the start of the description when there's no vendor yet. Tick a merchant to include all its lines, untick to exclude them all.</p>
 <table>
-  <tr><th>Include</th><th>Merchant</th><th>Category</th><th class="num">Lines included</th><th>Dates</th><th class="num">CAD</th><th></th></tr>
+  <tr>{{ include_all() }}<th>Merchant</th><th>Category</th><th class="num">Lines included</th><th>Dates</th><th class="num">CAD</th><th></th></tr>
   {% for g in groups %}
   <tr {% if not g.included %}class="excluded"{% endif %}>
     <td><form class="inline" method="post" action="/transactions/set-included">
@@ -53,10 +60,9 @@
   </tr>
   {% endfor %}
 </table>
-<script>document.querySelectorAll("input[data-mixed]").forEach(c => c.indeterminate = true)</script>
 {% else %}
 <table>
-  <tr><th>Card date</th><th>Counts on <span class="muted" title="The date used for the tax year, month and USD rate. Change it if the card date is off (e.g. UTC).">ⓘ</span></th><th>Card</th><th>Description</th><th>Vendor</th><th class="num">Amount</th><th>Cur</th><th class="num">USD→CAD</th><th class="num">CAD</th><th>Covers <span class="muted" title="For a prepaid charge such as an annual subscription: the amount is spread by day over this period, so part of it can count in the next tax year.">ⓘ</span></th><th>Include</th></tr>
+  <tr><th>Card date</th><th>Counts on <span class="muted" title="The date used for the tax year, month and USD rate. Change it if the card date is off (e.g. UTC).">ⓘ</span></th><th>Card</th><th>Description</th><th>Vendor</th><th class="num">Amount</th><th>Cur</th><th class="num">USD→CAD</th><th class="num">CAD</th><th>Covers <span class="muted" title="For a prepaid charge such as an annual subscription: the amount is spread by day over this period, so part of it can count in the next tax year.">ⓘ</span></th>{{ include_all() }}</tr>
   {% for t in rows %}
   <tr {% if t.excluded %}class="excluded"{% endif %}>
     <td>{{ t.txn_date }}</td>
@@ -89,4 +95,5 @@
   {% endfor %}
 </table>
 {% endif %}
+<script>document.querySelectorAll("input[data-mixed]").forEach(c => c.indeterminate = true)</script>
 {% endblock %}
