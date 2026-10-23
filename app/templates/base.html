@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Expense Tracker{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <strong>Trader Expense Tracker</strong>
+  <a href="/summary">Summary</a>
+  <a href="/">Cards</a>
+  <a href="/import">Import CSV</a>
+  <a href="/transactions">Transactions</a>
+  <a href="/vendors">Vendors</a>
+  <a href="/formats">CSV formats</a>
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

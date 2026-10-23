@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Cards</h1>
+{% if accounts %}
+<table>
+  <tr><th>Card</th><th>Currency</th><th class="num">Transactions</th><th>From</th><th>To</th><th></th></tr>
+  {% for a in accounts %}
+  <tr>
+    <td><a href="/transactions?account_id={{ a.id }}">{{ a.name }}</a></td>
+    <td>{{ a.currency }}</td>
+    <td class="num">{{ a.n }}</td>
+    <td>{{ a.first or "" }}</td><td>{{ a.last or "" }}</td>
+    <td><a href="/import?account_id={{ a.id }}">Import CSV</a></td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">Add each credit card you want to import from. Use a separate entry for USD and CAD cards.</p>
+{% endif %}
+
+<h2>Add a card</h2>
+<form class="card" method="post" action="/accounts">
+  <div class="grid">
+    <div><label>Name</label><input name="name" required placeholder="e.g. RBC Visa USD"></div>
+    <div><label>Currency</label><select name="currency"><option>CAD</option><option>USD</option></select></div>
+  </div>
+  <button>Add card</button>
+</form>
+
+{% if unconverted %}
+<div class="card warn">
+  {{ unconverted }} USD transaction(s) don't have a Bank of Canada rate yet (usually because you were offline).
+  <form class="inline" method="post" action="/fx/refresh"><button class="secondary">Fetch rates now</button></form>
+</div>
+{% endif %}
+
+{% if batches %}
+<h2>Recent imports</h2>
+<table>
+  <tr><th>When</th><th>Card</th><th>File</th><th class="num">Rows added</th><th></th></tr>
+  {% for b in batches %}
+  <tr>
+    <td>{{ b.imported_at }}</td><td>{{ b.account }}</td><td>{{ b.filename }}</td><td class="num">{{ b.row_count }}</td>
+    <td><form class="inline" method="post" action="/batches/{{ b.id }}/delete" onsubmit="return confirm('Remove the transactions from this import?')"><button class="link">Undo</button></form></td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endblock %}

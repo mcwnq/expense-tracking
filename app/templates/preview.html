@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% macro colselect(name, value, optional=False) %}
+<select name="{{ name }}">
+  {% if optional %}<option value="">(none)</option>{% endif %}
+  {% for h in header %}<option value="{{ h }}" {% if h == value %}selected{% endif %}>{{ h if mapping.has_header else "Column " ~ h }}</option>{% endfor %}
+</select>
+{% endmacro %}
+{% block content %}
+<h1>Check the mapping for {{ account.name }} ({{ account.currency }})</h1>
+<form class="card" method="post" action="/import/confirm">
+  <input type="hidden" name="account_id" value="{{ account.id }}">
+  <input type="hidden" name="filename" value="{{ filename }}">
+  <textarea name="csv_text" hidden>{{ csv_text }}</textarea>
+  {% if note %}<p class="ok">{{ note }}</p>{% endif %}
+  <div class="grid">
+    <div><label>Save as format</label><input name="format_name" value="{{ format_name }}" required placeholder="e.g. TD (no header)"></div>
+    {% if formats %}
+    <div><label>…or load a saved format</label>
+      <select name="load_format_id">{% for f in formats %}<option value="{{ f.id }}" {% if f.name == format_name %}selected{% endif %}>{{ f.name }}</option>{% endfor %}</select>
+      <button name="action" value="load" class="secondary">Load</button></div>
+    {% endif %}
+  </div>
+  <div class="grid">
+    <div><label>First row is a header</label>
+      <select name="has_header"><option value="1" {% if mapping.has_header %}selected{% endif %}>Yes</option><option value="0" {% if not mapping.has_header %}selected{% endif %}>No</option></select></div>
+    <div><label>Date column</label>{{ colselect("date_col", mapping.date_col) }}</div>
+    <div><label>Date format</label>
+      <select name="date_format"><option value="">Auto-detect</option>
+        {% for f in date_formats %}<option value="{{ f }}" {% if f == mapping.date_format %}selected{% endif %}>{{ f }}</option>{% endfor %}
+      </select></div>
+    <div><label>Description column</label>{{ colselect("description_col", mapping.description_col) }}</div>
+    <div><label>Amount column (signed)</label>{{ colselect("amount_col", mapping.amount_col, True) }}</div>
+    <div><label>Purchases in that column are</label>
+      <select name="charges_positive"><option value="1" {% if mapping.charges_positive %}selected{% endif %}>Positive</option><option value="0" {% if not mapping.charges_positive %}selected{% endif %}>Negative</option></select></div>
+    <div><label>…or Debit column</label>{{ colselect("debit_col", mapping.debit_col, True) }}</div>
+    <div><label>Credit column</label>{{ colselect("credit_col", mapping.credit_col, True) }}</div>
+  </div>
+  <button name="action" value="preview" class="secondary">Update preview</button>
+  <button name="action" value="import" {% if error or not rows %}disabled{% endif %}>Import {{ total_rows }} rows</button>
+</form>
+
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if rows %}
+<p class="muted">Showing {{ rows|length }} of {{ total_rows }} rows. Net total: {{ total_cents|money }} {{ account.currency }}. Purchases should be positive, payments and refunds negative.</p>
+<table>
+  <tr><th>Date</th><th>Description</th><th class="num">Amount ({{ account.currency }})</th></tr>
+  {% for r in rows %}<tr><td>{{ r.txn_date }}</td><td>{{ r.description }}</td><td class="num">{{ r.amount_cents|money }}</td></tr>{% endfor %}
+</table>
+{% endif %}
+{% endblock %}
