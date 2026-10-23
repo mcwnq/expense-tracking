@@ -274,3 +274,28 @@ def test_search_merchant_view_and_grouped_needs_vendor(tmp_path):
     r = client.get("/summary?year=2026")
     assert "Exclude all 2 lines" in r.text and 'name="ids" value="1,2"' in r.text and "Exclude this line" in r.text
     assert r.text.count('value="GROCERY STORE"') == 1
+
+
+def test_import_several_files_together(tmp_path):
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=None))
+    client.post("/accounts", data={"name": "Visa", "currency": "CAD"})
+    jan = "Date,Description,Amount\n2026-01-05,NINJATRADER,99.00\n2026-01-20,CME DATA,12.50\n"
+    feb = "Date,Description,Amount\n2026-01-20,CME DATA,12.50\n2026-02-05,NINJATRADER,99.00\n"  # overlaps jan
+    files = [("file", ("jan.csv", jan, "text/csv")), ("file", ("feb.csv", feb, "text/csv"))]
+    r = client.post("/import/preview", data={"account_id": 1}, files=files)
+    assert "2 files use one mapping" in r.text and "Import 4 rows" in r.text
+    assert "jan.csv" in r.text and "feb.csv" in r.text
+
+    form = {"account_id": 1, "filename": ["jan.csv", "feb.csv"], "csv_text": [jan, feb], "date_col": "Date",
+            "description_col": "Description", "amount_col": "Amount", "charges_positive": 1, "has_header": 1,
+            "format_name": "Visa"}
+    r = client.post("/import/confirm", data=form)
+    assert "Added <strong>3</strong>" in r.text and "Skipped 1 already imported" in r.text
+    page = client.get("/imports").text
+    assert "jan.csv" in page and "feb.csv" in page  # one import per file
+
+    # files with different columns can't share a mapping
+    other = "Posted,Payee,Debit,Credit\n2026-03-01,TOPSTEP,165.00,\n"
+    files = [("file", ("a.csv", jan, "text/csv")), ("file", ("b.csv", other, "text/csv"))]
+    r = client.post("/import/preview", data={"account_id": 1}, files=files)
+    assert "don&#39;t all have the same columns" in r.text and "disabled" in r.text

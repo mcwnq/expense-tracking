@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Import a credit card CSV</h1>
+<h1>Import credit card CSVs</h1>
 {% if not accounts %}
 <p>Add a card on the <a href="/">home page</a> first.</p>
 {% else %}
@@ -10,10 +10,10 @@
       <select name="account_id">
         {% for a in accounts %}<option value="{{ a.id }}" {% if a.id == selected %}selected{% endif %}>{{ a.name }} ({{ a.currency }})</option>{% endfor %}
       </select></div>
-    <div><label>CSV file</label><input type="file" name="file" accept=".csv,text/csv" required></div>
+    <div><label>CSV files</label><input type="file" name="file" accept=".csv,text/csv" multiple required></div>
   </div>
   <button>Preview</button>
-  <p class="muted">You'll check the column mapping before anything is saved. The mapping is remembered for next time. Re-importing an overlapping statement won't create duplicates.</p>
+  <p class="muted">You'll check the column mapping before anything is saved. The mapping is remembered for next time. You can pick several files at once (hold Ctrl or Shift) if they're from the same card and have the same columns. Re-importing an overlapping statement won't create duplicates.</p>
 </form>
 {% endif %}
 {% endblock %}

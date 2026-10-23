@@ -7,11 +7,14 @@
 {% endmacro %}
 {% block content %}
 <h1>Check the mapping for {{ account.name }} ({{ account.currency }})</h1>
+{% if files|length > 1 %}<p class="muted">{{ files|length }} files use one mapping and are imported together. Each file is kept as its own import, so you can remove one later on the Imports page.</p>{% endif %}
 {% for w in warnings %}<div class="card alert"><strong>Check the card.</strong> {{ w }} <a href="/import">Pick a different card</a></div>{% endfor %}
 <form class="card" method="post" action="/import/confirm">
   <input type="hidden" name="account_id" value="{{ account.id }}">
-  <input type="hidden" name="filename" value="{{ filename }}">
-  <textarea name="csv_text" hidden>{{ csv_text }}</textarea>
+  {% for name, text in files %}
+  <input type="hidden" name="filename" value="{{ name }}">
+  <textarea name="csv_text" hidden>{{ text }}</textarea>
+  {% endfor %}
   {% if note %}<p class="ok">{{ note }}</p>{% endif %}
   <div class="grid">
     <div><label>Save as format</label><input name="format_name" value="{{ format_name }}" required placeholder="e.g. TD (no header)"></div>
@@ -41,8 +44,14 @@
 </form>
 
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if per_file|length > 1 %}
+<table style="margin-bottom:16px">
+  <tr><th>File</th><th class="num">Rows</th><th class="num">Net ({{ account.currency }})</th></tr>
+  {% for f in per_file %}<tr><td>{{ f.filename }}</td><td class="num">{{ f.rows }}</td><td class="num">{{ f.total_cents|money }}</td></tr>{% endfor %}
+</table>
+{% endif %}
 {% if rows %}
-<p class="muted">Showing {{ rows|length }} of {{ total_rows }} rows. Net total: {{ total_cents|money }} {{ account.currency }}. Purchases should be positive, payments and refunds negative.</p>
+<p class="muted">Showing {{ rows|length }} of {{ total_rows }} rows{% if files|length > 1 %} from all files{% endif %}. Net total: {{ total_cents|money }} {{ account.currency }}. Purchases should be positive, payments and refunds negative.</p>
 <table>
   <tr><th>Date</th><th>Description</th><th class="num">Amount ({{ account.currency }})</th></tr>
   {% for r in rows %}<tr><td>{{ r.txn_date }}</td><td>{{ r.description }}</td><td class="num">{{ r.amount_cents|money }}</td></tr>{% endfor %}
