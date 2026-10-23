@@ -29,6 +29,12 @@
   {% if fx_method == "annual" %}<span class="muted">All USD amounts in {{ s.year }} use {{ annual_rate }}.</span>{% endif %}
   {% if fx_error %}<span class="error">{{ fx_error }}</span>{% endif %}
 </form>
+{% if s.deferred_out or s.carried_in %}
+<p class="muted">Prepaid charges are spread over the period they cover.
+  {% if s.carried_in %}${{ s.carried_in|money }} paid in earlier years counts in {{ s.year }}.{% endif %}
+  {% if s.deferred_out %}${{ s.deferred_out|money }} paid in {{ s.year }} counts in later years.{% endif %}
+  Set the period with "Covers" on the <a href="/transactions">Transactions</a> page.</p>
+{% endif %}
 {% if unconverted %}<p class="warn">{{ unconverted }} USD transaction(s) this year have no CAD amount yet and aren't counted. Use "Fetch rates now" on the Cards page.</p>{% endif %}
 
 <div class="toolbar">

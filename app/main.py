@@ -281,6 +281,11 @@ def create_app(
         fx.fill_missing_cad(conn, fetcher)
         return RedirectResponse(back, status_code=303)
 
+    @app.post("/transactions/{txn_id}/covers")
+    def covers(txn_id: int, months: str = Form(""), back: str = Form("/transactions")):
+        vendors.set_service_months(conn, txn_id, int(months) if months.isdigit() else None)
+        return RedirectResponse(back, status_code=303)
+
     @app.post("/transactions/{txn_id}/exclude")
     def exclude(txn_id: int, excluded: int = Form(0), back: str = Form("/transactions")):
         vendors.set_excluded(conn, txn_id, bool(excluded))

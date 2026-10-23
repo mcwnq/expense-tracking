@@ -12,7 +12,7 @@
 </form>
 <p class="muted">{{ rows|length }} transactions · net {{ total_cad|money }} CAD (excluded lines not counted)</p>
 <table>
-  <tr><th>Card date</th><th>Counts on <span class="muted" title="The date used for the tax year, month and USD rate. Change it if the card date is off (e.g. UTC).">ⓘ</span></th><th>Card</th><th>Description</th><th>Vendor</th><th class="num">Amount</th><th>Cur</th><th class="num">USD→CAD</th><th class="num">CAD</th><th>Exclude</th></tr>
+  <tr><th>Card date</th><th>Counts on <span class="muted" title="The date used for the tax year, month and USD rate. Change it if the card date is off (e.g. UTC).">ⓘ</span></th><th>Card</th><th>Description</th><th>Vendor</th><th class="num">Amount</th><th>Cur</th><th class="num">USD→CAD</th><th class="num">CAD</th><th>Covers <span class="muted" title="For a prepaid charge such as an annual subscription: the amount is spread by day over this period, so part of it can count in the next tax year.">ⓘ</span></th><th>Exclude</th></tr>
   {% for t in rows %}
   <tr {% if t.excluded %}class="excluded"{% endif %}>
     <td>{{ t.txn_date }}</td>
@@ -25,6 +25,14 @@
     <td class="num">{{ t.amount_cents|money }}</td><td>{{ t.currency }}</td>
     <td class="num">{{ t.fx_rate or "" }}</td>
     <td class="num {% if t.cad_cents is none %}warn{% endif %}">{{ t.cad_cents|money }}</td>
+    <td><form class="inline" method="post" action="/transactions/{{ t.id }}/covers">
+      <input type="hidden" name="back" value="/transactions?account_id={{ account_id or '' }}&month={{ month or '' }}">
+      <select name="months" onchange="this.form.submit()" aria-label="Service period for {{ t.description }}">
+        <option value="" {% if not t.service_months %}selected{% endif %}>—</option>
+        {% for m in [1, 3, 6, 12, 24, 36] %}<option value="{{ m }}" {% if t.service_months == m %}selected{% endif %}>{{ m }} mo</option>{% endfor %}
+        {% if t.service_months and t.service_months not in [1, 3, 6, 12, 24, 36] %}<option value="{{ t.service_months }}" selected>{{ t.service_months }} mo</option>{% endif %}
+      </select>
+    </form></td>
     <td><form class="inline" method="post" action="/transactions/{{ t.id }}/exclude">
       <input type="hidden" name="back" value="/transactions?account_id={{ account_id or '' }}&month={{ month or '' }}">
       <input type="hidden" name="excluded" value="{{ 0 if t.excluded else 1 }}">

@@ -6,9 +6,11 @@ When several rules match, the longest pattern wins, so "APEX RESET" can map
 to a different vendor than "APEX".
 """
 
+import calendar
 import re
 import sqlite3
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 
 CATEGORIES = [
     "Prop firm evaluations",
@@ -122,6 +124,35 @@ def detect_recurrence(months_charged: set[int]) -> str:
     return "one-time"
 
 
+def add_months(d: date, months: int) -> date:
+    m = d.month - 1 + months
+    y, m = d.year + m // 12, m % 12 + 1
+    return date(y, m, min(d.day, calendar.monthrange(y, m)[1]))
+
+
+def allocate(start: date, months: int | None, cents: int) -> dict[tuple[int, int], int]:
+    """Split an amount across calendar months, by day, over the service period
+    [start, start + months). Without a period the whole amount falls on start.
+    Rounding is carried so the parts always add up to the original amount."""
+    if not months:
+        return {(start.year, start.month): cents}
+    end = add_months(start, months)  # exclusive
+    days = (end - start).days
+    out: dict[tuple[int, int], int] = {}
+    done, cursor = 0, start
+    while cursor < end:
+        month_end = min(add_months(cursor.replace(day=1), 1), end)
+        done_after = done + (month_end - cursor).days
+        out[(cursor.year, cursor.month)] = round(cents * done_after / days) - round(cents * done / days)
+        done, cursor = done_after, month_end
+    return out
+
+
+def service_end(start: date, months: int) -> date:
+    """Last day covered by a prepaid charge."""
+    return add_months(start, months) - timedelta(days=1)
+
+
 @dataclass
 class VendorRow:
     id: int
@@ -166,36 +197,56 @@ class Summary:
     def count_for(self, recurrence: str) -> int:
         return sum(1 for v in self.all_vendors if v.recurrence == recurrence)
 
+    # Prepaid amounts crossing the year boundary, in CAD cents
+    deferred_out: int = 0  # paid this year, counted in later years
+    carried_in: int = 0  # paid in earlier years, counted this year
+
 
 def summary(conn: sqlite3.Connection, year: int, only: str | None = None) -> Summary:
     """Business expenses for a year in CAD cents, grouped by category then vendor.
 
-    Refunds net against the vendor's charges in the month they post. Excluded
-    categories and unassigned transactions are left out (see unassigned()).
+    Refunds net against the vendor's charges in the month they post. Prepaid
+    charges are spread over their service period, so part of a charge can fall
+    in another year. Excluded categories and unassigned transactions are left
+    out (see unassigned()).
     """
     rows = conn.execute(
-        "SELECT v.id, v.name, v.category, v.recurrence, CAST(substr(t.tax_date, 6, 2) AS INTEGER) AS m, "
-        "SUM(t.cad_cents) AS cents, SUM(CASE WHEN t.amount_cents > 0 THEN 1 ELSE 0 END) AS charges "
+        "SELECT v.id, v.name, v.category, v.recurrence, t.tax_date, t.service_months, t.cad_cents, t.amount_cents "
         "FROM transactions t JOIN vendors v ON v.id = t.vendor_id "
-        "WHERE substr(t.tax_date, 1, 4) = ? AND t.cad_cents IS NOT NULL AND NOT t.excluded "
-        "GROUP BY v.id, m",
-        (str(year),),
+        "WHERE t.tax_date <= ? AND (substr(t.tax_date, 1, 4) = ? OR t.service_months IS NOT NULL) "
+        "AND t.cad_cents IS NOT NULL AND NOT t.excluded",
+        (f"{year}-12-31", str(year)),
     ).fetchall()
 
     vendors: dict[int, VendorRow] = {}
     charged: dict[int, set[int]] = {}
+    subscriptions: set[int] = set()
+    deferred_out = carried_in = 0
     for r in rows:
         if r["category"] in EXCLUDED:
+            continue
+        paid = date.fromisoformat(r["tax_date"])
+        parts = allocate(paid, r["service_months"], r["cad_cents"])
+        in_year = {m: c for (y, m), c in parts.items() if y == year}
+        if paid.year == year:
+            deferred_out += sum(c for (y, _), c in parts.items() if y > year)
+        else:
+            carried_in += sum(in_year.values())
+        if not in_year:
             continue
         v = vendors.setdefault(
             r["id"], VendorRow(r["id"], r["name"], r["category"], r["recurrence"] or "", r["recurrence"] is None)
         )
-        v.months[r["m"] - 1] += r["cents"]
-        if r["charges"]:
-            charged.setdefault(r["id"], set()).add(r["m"])
+        for m, c in in_year.items():
+            v.months[m - 1] += c
+        if paid.year == year and r["amount_cents"] > 0:
+            charged.setdefault(r["id"], set()).add(paid.month)
+        if (r["service_months"] or 0) >= 12:
+            subscriptions.add(r["id"])
     for v in vendors.values():
         if v.auto:
-            v.recurrence = detect_recurrence(charged.get(v.id, set()))
+            # A charge prepaid for a year or more is a subscription, so recurring
+            v.recurrence = "recurring" if v.id in subscriptions else detect_recurrence(charged.get(v.id, set()))
 
     all_vendors = sorted(vendors.values(), key=lambda v: v.name.lower())
     shown = [v for v in all_vendors if not only or v.recurrence == only]
@@ -207,6 +258,8 @@ def summary(conn: sqlite3.Connection, year: int, only: str | None = None) -> Sum
         year,
         [CategoryGroup(c, vs) for c, vs in sorted(groups.items(), key=lambda kv: order.get(kv[0], 99))],
         all_vendors,
+        deferred_out,
+        carried_in,
     )
 
 
@@ -219,7 +272,11 @@ def unassigned(conn: sqlite3.Connection, year: int) -> list[sqlite3.Row]:
 
 
 def years(conn: sqlite3.Connection) -> list[int]:
-    return [int(r[0]) for r in conn.execute("SELECT DISTINCT substr(tax_date, 1, 4) FROM transactions ORDER BY 1 DESC")]
+    """Years with transactions, plus later years that prepaid charges reach into."""
+    found = {int(r[0]) for r in conn.execute("SELECT DISTINCT substr(tax_date, 1, 4) FROM transactions")}
+    for r in conn.execute("SELECT tax_date, service_months FROM transactions WHERE service_months IS NOT NULL"):
+        found.add(service_end(date.fromisoformat(r["tax_date"]), r["service_months"]).year)
+    return sorted(found, reverse=True)
 
 
 def year_end_check(conn: sqlite3.Connection, year: int) -> list[sqlite3.Row]:
@@ -232,6 +289,12 @@ def year_end_check(conn: sqlite3.Connection, year: int) -> list[sqlite3.Row]:
         f"WHERE t.txn_date IN ({','.join('?' * len(days))}) AND t.amount_cents > 0 AND NOT t.excluded ORDER BY t.txn_date",
         days,
     ).fetchall()
+
+
+def set_service_months(conn: sqlite3.Connection, txn_id: int, months: int | None) -> None:
+    """Spread a prepaid charge over months starting on its tax date (None = expense it at once)."""
+    conn.execute("UPDATE transactions SET service_months = ? WHERE id = ?", (months or None, txn_id))
+    conn.commit()
 
 
 def set_excluded(conn: sqlite3.Connection, txn_id: int, excluded: bool) -> None:

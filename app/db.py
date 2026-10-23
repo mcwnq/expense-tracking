@@ -110,4 +110,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         # Per-line exclusion, e.g. a personal purchase from a vendor you also buy business items from.
         conn.execute("ALTER TABLE transactions ADD COLUMN excluded INTEGER NOT NULL DEFAULT 0")
         conn.execute("PRAGMA user_version = 3")
+    if version < 4:
+        # Prepaid charges (e.g. an annual subscription) are spread by day over this
+        # many months starting on the tax date. NULL = expensed on the tax date.
+        conn.execute("ALTER TABLE transactions ADD COLUMN service_months INTEGER")
+        conn.execute("PRAGMA user_version = 4")
     conn.commit()
