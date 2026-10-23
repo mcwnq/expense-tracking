@@ -342,15 +342,10 @@ def create_app(
         year = pick_year(year)
         fx_method, annual_rate = fx.year_setting(conn, year)
         only = show if show in ("recurring", "one-time") else None
-        cur = cur if cur in ("USD", "CAD") else "split"
-        if cur == "split":
-            s = vendors.summary(conn, year, only)
-            tables = [
-                (f"Charged in {c}", vendors.summary(conn, year, only, charged_in=c)) for c in ("USD", "CAD")
-            ]
-        else:
-            s = summary_in(year, only, cur)
-            tables = [("", s)]
+        # Charges in each original currency, then everything in one currency (CAD unless toggled to USD)
+        cur = "USD" if cur == "USD" else "CAD"
+        s = summary_in(year, only, cur)
+        tables = [(c, vendors.summary(conn, year, only, charged_in=c)) for c in ("USD", "CAD")]
         return render(
             request,
             "summary.html",

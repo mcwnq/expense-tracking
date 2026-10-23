@@ -326,10 +326,11 @@ def test_summary_split_by_currency_and_all_in_usd(tmp_path):
     client.post("/transactions/add", data={"account_id": 1, "txn_date": "2026-03-02", "description": "TRADOVATE", "amount": "100"})
     client.post("/transactions/add", data={"account_id": 2, "txn_date": "2026-03-09", "description": "TRADOVATE", "amount": "50"})
 
-    r = client.get("/summary?year=2026&cur=CAD")
-    assert "175.00" in r.text  # 100 USD * 1.25 + 50 CAD
-    r = client.get("/summary?year=2026&cur=split")
+    # always both currency sections, then the combined total in CAD by default
+    r = client.get("/summary?year=2026")
     assert "Charged in USD · $100.00 USD" in r.text and "Charged in CAD · $50.00 CAD" in r.text
+    assert "All charges in CAD · $175.00 CAD" in r.text  # 100 USD * 1.25 + 50 CAD
     r = client.get("/summary?year=2026&cur=USD")
-    assert "140.00" in r.text and "amounts in USD" in r.text  # 100 USD + 50 CAD / 1.25
+    assert "Charged in USD · $100.00 USD" in r.text and "Charged in CAD · $50.00 CAD" in r.text
+    assert "All charges in USD · $140.00 USD" in r.text  # 100 USD + 50 CAD / 1.25
     assert "140.00" in client.get("/summary.csv?year=2026&cur=USD").text

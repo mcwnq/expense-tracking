@@ -27,7 +27,9 @@ button.link { background:none; color:var(--bad); padding:0; }
 .kpi .value { font-size:24px; font-variant-numeric:tabular-nums; margin-top:2px; }
 .kpi.attention { background:#fff7ec; border-color:#e9c48f; color:#7a4206; }
 .scroll { overflow-x:auto; }
-.scroll table { min-width:1100px; }
+.scroll table { min-width:900px; }
+table.pivot { font-size:14px; }
+table.pivot td, table.pivot th { padding:6px 7px; }
 table.pivot td:first-child, table.pivot tfoot th { position:sticky; left:0; background:#fff; }
 table.pivot td, table.pivot th { white-space:nowrap; }
 tr.group th, tr.group td { background:#f0f3f6; font-weight:600; }
