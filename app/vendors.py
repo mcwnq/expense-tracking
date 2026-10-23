@@ -1,7 +1,8 @@
 """Vendor grouping, monthly/yearly totals and one-time vs recurring tagging.
 
-Each transaction is assigned to a vendor by rules: a rule is an upper-case
-substring of the card description ("TOPSTEP" matches "TOPSTEP* COMBINE 150K").
+Each transaction is assigned to a vendor by rules: a rule is upper-case text
+that starts a word of the card description ("TOPSTEP" matches "TOPSTEP* COMBINE
+150K", but "FL" doesn't match "PAYPAL *NETFLIX").
 When several rules match, the longest pattern wins, so "APEX RESET" can map
 to a different vendor than "APEX".
 """
@@ -98,9 +99,16 @@ def match_vendor(rules: list[tuple[str, int]], description: str) -> int | None:
     """rules must be sorted longest pattern first."""
     desc = description.upper()
     for pattern, vendor_id in rules:
-        if pattern in desc:
+        if rule_matches(pattern, desc):
             return vendor_id
     return None
+
+
+def rule_matches(pattern: str, desc: str) -> bool:
+    """True if pattern appears in desc where a word starts (it may run on into
+    the word, so "NINJA" matches "NINJATRADER")."""
+    start = r"(?<![A-Z0-9])" if pattern[:1].isalnum() else ""
+    return re.search(start + re.escape(pattern), desc) is not None
 
 
 def apply_rules(conn: sqlite3.Connection) -> None:

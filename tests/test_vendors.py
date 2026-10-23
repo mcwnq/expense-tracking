@@ -156,3 +156,24 @@ def test_default_db_path_moves_legacy_file(tmp_path, monkeypatch):
     assert db.default_db_path() == home_db and home_db.read_bytes() == b"old data"
     monkeypatch.setenv("EXPENSE_DB", str(tmp_path / "x.db"))
     assert db.default_db_path() == tmp_path / "x.db"
+
+
+def test_rule_must_start_a_word():
+    rules = [("APEX TRADER", 1), ("NINJA", 2), ("*EVAL", 3), ("FL", 4)]
+    assert vendors.match_vendor(rules, "PAYPAL *NETFLIX 4029357733") is None
+    assert vendors.match_vendor(rules, "PAYPAL *FLEXTRADE 4029357733") == 4
+    assert vendors.match_vendor(rules, "WWW.APEX TRADER FUNDING") == 1
+    assert vendors.match_vendor(rules, "NINJATRADER LLC") == 2
+    assert vendors.match_vendor(rules, "MFFU*EVAL 50K") == 3
+
+
+def test_migration_rematches_netflix(tmp_path):
+    conn = setup(tmp_path, [("2026-03-02", "PAYPAL *NETFLIX 4029357733", 1699)])
+    vid = vendors.get_or_create_vendor(conn, "FL Trading", "Software")
+    conn.execute("INSERT INTO vendor_rules (pattern, vendor_id) VALUES ('FL', ?)", (vid,))
+    conn.execute("UPDATE transactions SET vendor_id = ?", (vid,))  # as the old substring match left it
+    conn.execute("PRAGMA user_version = 9")
+    conn.commit()
+    conn.close()
+    conn = db.connect(tmp_path / "t.db")
+    assert conn.execute("SELECT vendor_id FROM transactions").fetchone()[0] is None
