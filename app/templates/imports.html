@@ -3,6 +3,18 @@
 <h1>Imports</h1>
 <p class="muted">Every file you've imported. Remove an import to delete the transactions it added, for example a file imported to the wrong card. Lines that another import's file also contains (overlapping statements) are kept.</p>
 <p class="muted">Rows in file doesn't count the header. Transactions plus In another import should equal it. If it's lower (shown in orange), some rows were left out, such as rows with no amount or lines removed since. Rows in file is blank for files imported before this column was added.</p>
+{% if results %}
+<div class="card">
+  <h3>Rows in file updated</h3>
+  <ul>
+  {% for r in results %}
+    <li>{{ r.filename }}:
+      {% if r.error %}<span class="warn">{{ r.error }}</span>
+      {% else %}{% for b in r.imports %}{{ b.filename }} on {{ b.account }}{{ ", " if not loop.last }}{% endfor %}{% endif %}</li>
+  {% endfor %}
+  </ul>
+</div>
+{% endif %}
 {% if batches %}
 <table>
   <tr><th>When</th><th>Card</th><th>File</th><th class="num">Rows in file</th><th class="num">Transactions</th><th class="num">In another import</th><th></th></tr>
@@ -18,5 +30,13 @@
   </tr>
   {% endfor %}
 </table>
+<details>
+  <summary>Fill in Rows in file for older imports</summary>
+  <p class="muted">Upload the same CSV files again. Each one is matched to its import by its lines, and only Rows in file is updated. Nothing is imported, and no transactions change.</p>
+  <form method="post" action="/imports/row-counts" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".csv,text/csv" multiple required>
+    <button>Update row counts</button>
+  </form>
+</details>
 {% else %}<p>No imports yet. <a href="/import">Import a CSV</a></p>{% endif %}
 {% endblock %}

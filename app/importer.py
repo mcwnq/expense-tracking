@@ -388,6 +388,37 @@ def remove_batch(conn: sqlite3.Connection, batch_id: int) -> int:
     return deleted
 
 
+def fill_file_rows(conn: sqlite3.Connection, text: str) -> list[sqlite3.Row] | None:
+    """Set Rows in file on every import of this file (matched by its lines, on any
+    card) and return those imports. None if no saved format reads the file."""
+    fmt = match_format(conn, text)
+    if fmt is None:
+        return None
+    m = Mapping.from_row(fmt)
+    rows = parse(text, m)
+    n = len(read_rows(text, m.has_header)[1])
+    batches = conn.execute(
+        "SELECT b.*, a.name AS account FROM import_batches b JOIN accounts a ON a.id = b.account_id ORDER BY b.id"
+    ).fetchall()
+    # an import whose lines all appear in the file; on each card the one with the most
+    # lines wins, so a shorter statement inside this one (e.g. Sep inside the year) is left alone
+    best: dict[int, tuple[int, list[sqlite3.Row]]] = {}
+    for b in batches:
+        lines = {r[0] for r in conn.execute("SELECT dedupe_key FROM batch_lines WHERE batch_id = ?", (b["id"],))}
+        if not lines or not lines <= set(dedupe_keys(b["account_id"], rows)):
+            continue
+        size, same = best.get(b["account_id"], (0, []))
+        if len(lines) > size:
+            best[b["account_id"]] = (len(lines), [b])
+        elif len(lines) == size:
+            same.append(b)
+    found = [b for _, bs in best.values() for b in bs]
+    for b in found:
+        conn.execute("UPDATE import_batches SET file_rows = ? WHERE id = ?", (n, b["id"]))
+    conn.commit()
+    return found
+
+
 def add_manual(conn: sqlite3.Connection, account: sqlite3.Row, on: date, description: str, amount_cents: int) -> int:
     """Add a transaction typed in by hand (no import). Returns its id."""
     cur = conn.execute(

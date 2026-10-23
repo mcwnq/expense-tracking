@@ -505,6 +505,9 @@ def create_app(
 
     @app.get("/imports", response_class=HTMLResponse)
     def imports(request: Request):
+        return _imports_page(request)
+
+    def _imports_page(request, results=None):
         batches = conn.execute(
             "SELECT b.*, a.name AS account, a.currency, "
             "(SELECT COUNT(*) FROM transactions t WHERE t.batch_id = b.id) AS n, "
@@ -513,7 +516,23 @@ def create_app(
             " WHERE l.batch_id = b.id AND t.batch_id != b.id) AS shared "
             "FROM import_batches b JOIN accounts a ON a.id = b.account_id ORDER BY b.id DESC"
         ).fetchall()
-        return render(request, "imports.html", batches=batches)
+        return render(request, "imports.html", batches=batches, results=results)
+
+    @app.post("/imports/row-counts", response_class=HTMLResponse)
+    async def fill_row_counts(request: Request, file: list[UploadFile] = File(...)):
+        results = []
+        for f in file:
+            text = (await f.read()).decode("utf-8-sig", errors="replace")
+            try:
+                found = importer.fill_file_rows(conn, text)
+            except importer.CsvFormatError as e:
+                found, error = None, str(e)
+            else:
+                error = None if found is not None else "No saved format matches this file's columns."
+            if found == []:
+                error = "Doesn't match any import. Its lines may have been removed, or it was never imported."
+            results.append({"filename": f.filename, "imports": found or [], "error": error})
+        return _imports_page(request, results)
 
     @app.post("/batches/{batch_id}/delete")
     def delete_batch(batch_id: int, back: str = Form("/")):
