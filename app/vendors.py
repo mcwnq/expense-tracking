@@ -149,8 +149,12 @@ def suggest_pattern(description: str) -> str:
     first = re.split(r"[*#]", text, maxsplit=1)[0]
     # stop at the first reference or phone number
     first = " ".join(itertools.takewhile(lambda t: not re.search(r"\d", t), first.split())) or first
-    words = [w for w in re.findall(r"[A-Z][A-Z.&'-]*", first) if len(w) > 1]
-    return " ".join(words[:2]) or description.upper().strip()
+    # the first two words of 2+ letters, with any short words between them kept,
+    # so the rule still matches: "I AM A DAY TRADER" -> "AM A DAY"
+    words = [w for w in re.finditer(r"[A-Z][A-Z.&'-]*", first) if len(w[0]) > 1][:2]
+    if not words:
+        return description.upper().strip()
+    return " ".join(first[words[0].start() : words[-1].end()].split())
 
 
 def add_rule(conn: sqlite3.Connection, pattern: str, vendor_id: int) -> None:

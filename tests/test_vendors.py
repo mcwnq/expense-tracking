@@ -181,6 +181,6 @@ def test_migration_rematches_netflix(tmp_path):
 
 def test_suggested_pattern_always_matches_its_line():
     for d in ["1PASSWORD 1PASSWORD.COM", "TOPSTEP/COMBINE 50K", "APPLE.COM/BILL", "3COMMAS",
-              "99DESIGNS", "CHATGPT  SUBSCRIPTION", "PAYPAL *FL 4029357733", "AMZN MKTP CA*2X3"]:
+              "99DESIGNS", "CHATGPT  SUBSCRIPTION", "I AM A DAY TRADER LLC", "PAYPAL *FL 4029357733", "AMZN MKTP CA*2X3"]:
         assert vendors.rule_matches(vendors.suggest_pattern(d), d.upper()), d
     assert not vendors.rule_matches("FL", "PAYPAL *NETFLIX.COM")
