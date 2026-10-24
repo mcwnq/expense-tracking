@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Vendors and rules</h1>
-<p class="muted">A rule is text to look for in the card description (not case-sensitive). When several rules match, the longest one wins, so "APEX RESET" can go to a different vendor than "APEX". Type is detected automatically (charged in 3+ months, or 2 months in a row, means recurring) unless you set it.</p>
+<p class="muted">A rule is text to look for at the start of a word in the card description (not case-sensitive), so "FL" matches "PAYPAL *FLOWTRADE" but not "NETFLIX". When several rules match, the longest one wins, so "APEX RESET" can go to a different vendor than "APEX". Type is detected automatically (charged in 3+ months, or 2 months in a row, means recurring) unless you set it.</p>
 
 <h2>Add a vendor</h2>
 <form class="card" method="post" action="/vendors">

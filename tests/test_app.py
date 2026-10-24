@@ -423,3 +423,20 @@ def test_fill_row_counts_for_older_imports(tmp_path):
     assert "year.csv on Visa" in page and "amex.csv on Amex" in page
     assert "Doesn&#39;t match any import" in page and "No saved format matches" in page
     assert conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] == before
+
+
+def test_assign_explains_when_nothing_matches(tmp_path):
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=None))
+    client.post("/accounts", data={"name": "Visa", "currency": "CAD"})
+    client.post("/import/confirm", data={
+        "account_id": 1, "date_col": "Date", "description_col": "Description", "amount_col": "Amount",
+        "charges_positive": 1, "has_header": 1, "format_name": "Visa", "filename": "a.csv",
+        "csv_text": "Date,Description,Amount\n2026-03-02,TOPSTEP/COMBINE 50K,49.00\n"})
+    back = "/summary?year=2026"
+    page = client.post("/assign", data={"pattern": "NOPE", "vendor_id": "new", "new_vendor": "X", "back": back}).text
+    assert "No transaction description matches" in page
+    page = client.post("/assign", data={"pattern": "TOPSTEP COMBINE", "vendor_id": "new", "new_vendor": "", "back": back}).text
+    assert "Type a name for the new vendor" in page
+    page = client.post("/assign", data={"pattern": "TOPSTEP COMBINE", "vendor_id": "new", "new_vendor": "Topstep eval",
+                                        "category": "Prop firm evaluations", "back": back}).text
+    assert "Transactions that need a vendor" not in page

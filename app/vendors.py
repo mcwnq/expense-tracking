@@ -2,7 +2,7 @@
 
 Each transaction is assigned to a vendor by rules: a rule is upper-case text
 that starts a word of the card description ("TOPSTEP" matches "TOPSTEP* COMBINE
-150K", but "FL" doesn't match "PAYPAL *NETFLIX").
+150K", but "FL" doesn't match "PAYPAL *NETFLIX"). See rule_matches.
 When several rules match, the longest pattern wins, so "APEX RESET" can map
 to a different vendor than "APEX".
 """
@@ -105,10 +105,15 @@ def match_vendor(rules: list[tuple[str, int]], description: str) -> int | None:
 
 
 def rule_matches(pattern: str, desc: str) -> bool:
-    """True if pattern appears in desc where a word starts (it may run on into
-    the word, so "NINJA" matches "NINJATRADER")."""
-    start = r"(?<![A-Z0-9])" if pattern[:1].isalnum() else ""
-    return re.search(start + re.escape(pattern), desc) is not None
+    """True if pattern appears in desc where a word starts, i.e. not right after
+    a letter (it may run on into the word, so "NINJA" matches "NINJATRADER", and
+    "PASSWORD" matches "1PASSWORD"). A space in the pattern stands for any gap
+    between words, so "APPLE.COM BILL" matches "APPLE.COM/BILL"."""
+    words = pattern.split()
+    if not words:
+        return False
+    start = r"(?<![A-Z])" if pattern[:1].isalpha() else ""
+    return re.search(start + r"[^A-Z]+".join(map(re.escape, words)), desc) is not None
 
 
 def apply_rules(conn: sqlite3.Connection) -> None:
@@ -144,8 +149,12 @@ def suggest_pattern(description: str) -> str:
     first = re.split(r"[*#]", text, maxsplit=1)[0]
     # stop at the first reference or phone number
     first = " ".join(itertools.takewhile(lambda t: not re.search(r"\d", t), first.split())) or first
-    words = [w for w in re.findall(r"[A-Z][A-Z.&'-]*", first) if len(w) > 1]
-    return " ".join(words[:2]) or description.upper().strip()
+    # the first two words of 2+ letters, with any short words between them kept,
+    # so the rule still matches: "I AM A DAY TRADER" -> "AM A DAY"
+    words = [w for w in re.finditer(r"[A-Z][A-Z.&'-]*", first) if len(w[0]) > 1][:2]
+    if not words:
+        return description.upper().strip()
+    return " ".join(first[words[0].start() : words[-1].end()].split())
 
 
 def add_rule(conn: sqlite3.Connection, pattern: str, vendor_id: int) -> None:
