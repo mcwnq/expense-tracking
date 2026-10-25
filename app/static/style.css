@@ -58,5 +58,7 @@ legend { font-size:13px; font-weight:600; color:var(--muted); padding:0 4px; }
 .grid input, .grid select { width:100%; }
 input.calculated { background:#eef3fa; font-weight:600; }
 .calc { color:var(--accent); }
-
+dialog { border:1px solid var(--line); padding:20px; max-width:480px; width:calc(100% - 32px); }
+dialog::backdrop { background:rgba(0,0,0,.3); }
+dialog select { width:100%; margin-bottom:8px; }
 .undo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 16px; }

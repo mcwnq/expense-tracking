@@ -3,6 +3,9 @@
 <h1>Vendors and rules</h1>
 <p class="muted">A rule is text to look for at the start of a word in the card description (not case-sensitive), so "FL" matches "PAYPAL *FLOWTRADE" but not "NETFLIX". When several rules match, the longest one wins, so "APEX RESET" can go to a different vendor than "APEX". Type is detected automatically (charged in 3+ months, or 2 months in a row, means recurring) unless you set it.</p>
 
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<p class="muted">Charges from one vendor can belong on different T2125 lines, such as a course and a software subscription. Use <strong>Duplicate</strong> to make a copy with the same category and no rules, rename it and set its category, then move those lines to it on the <a href="/transactions">Transactions</a> page. New charges keep going to the vendor whose rule matches.</p>
+
 <h2>Add a vendor</h2>
 <form class="card" method="post" action="/vendors">
   <div class="grid">
@@ -27,10 +30,10 @@
 <table>
   <tr><th>Vendor</th><th>Category and type</th><th>Rules</th><th class="num">Transactions</th><th></th></tr>
   {% for v in vendors %}
-  <tr>
-    <td>{{ v.name }}</td>
+  <tr id="vendor-{{ v.id }}">
+    <td><input form="vendor-form-{{ v.id }}" name="name" value="{{ v.name }}" aria-label="Name" size="22" required></td>
     <td>
-      <form class="inline" method="post" action="/vendors/{{ v.id }}">
+      <form class="inline" method="post" action="/vendors/{{ v.id }}" id="vendor-form-{{ v.id }}">
         <select name="category" aria-label="Category">{% for c in categories %}<option {% if c == v.category %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
         <select name="recurrence" aria-label="Type">
           <option value="" {% if not v.recurrence %}selected{% endif %}>Auto-detect</option>
@@ -47,7 +50,8 @@
       <form class="inline" method="post" action="/rules"><input type="hidden" name="vendor_id" value="{{ v.id }}"><input name="pattern" size="12" placeholder="add rule" aria-label="New rule for {{ v.name }}"></form>
     </td>
     <td class="num">{{ v.n }}{% if v.n_excluded %}<br><span class="muted small">{{ v.n_excluded }} excluded</span>{% endif %}</td>
-    <td><form class="inline" method="post" action="/vendors/{{ v.id }}/delete" onsubmit="return confirm('Delete {{ v.name }}? Its transactions become unassigned.')"><button class="link">Delete</button></form></td>
+    <td class="nowrap"><form class="inline" method="post" action="/vendors/{{ v.id }}/duplicate"><button class="link" style="color:var(--accent)" title="Copy with the same category and no rules">Duplicate</button></form>
+      · <form class="inline" method="post" action="/vendors/{{ v.id }}/delete" onsubmit="return confirm({{ ('Delete ' ~ v.name ~ '? Its transactions go back to the rules, or become unassigned.')|tojson|forceescape }})"><button class="link">Delete</button></form></td>
   </tr>
   {% endfor %}
 </table>

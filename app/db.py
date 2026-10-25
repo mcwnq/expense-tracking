@@ -70,7 +70,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     currency     TEXT NOT NULL,
     fx_rate      TEXT,                   -- USD->CAD rate used (decimal string); NULL for CAD
     cad_cents    INTEGER,                -- NULL until a rate is available
-    dedupe_key   TEXT NOT NULL UNIQUE
+    dedupe_key   TEXT NOT NULL UNIQUE,
+    vendor_manual INTEGER NOT NULL DEFAULT 0  -- 1 = vendor picked by hand, rules leave it alone
 );
 
 CREATE TABLE IF NOT EXISTS vendors (
@@ -133,6 +134,9 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
 def _migrate(conn: sqlite3.Connection) -> None:
     """Bring databases created by earlier versions up to date (tracked in PRAGMA user_version)."""
     version = conn.execute("PRAGMA user_version").fetchone()[0]
+    # Older databases lack this column, and the steps below re-apply vendor rules, which read it
+    if "vendor_manual" not in [c["name"] for c in conn.execute("PRAGMA table_info(transactions)")]:
+        conn.execute("ALTER TABLE transactions ADD COLUMN vendor_manual INTEGER NOT NULL DEFAULT 0")
     if version < 1:
         conn.execute(
             "ALTER TABLE transactions ADD COLUMN vendor_id INTEGER REFERENCES vendors(id) ON DELETE SET NULL"

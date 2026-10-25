@@ -279,6 +279,7 @@ def create_app(
             here=here,
             here_for=lambda v: here.replace(f"view={view}", f"view={v}"),
             all_ids=",".join(str(r["id"]) for r in rows),
+            all_vendors=conn.execute("SELECT id, name FROM vendors ORDER BY name").fetchall(),
             total_cad=total_cad,
             all_included=bool(rows) and not any(r["excluded"] for r in rows),
             included_count=sum(1 for r in rows if not r["excluded"]),
@@ -478,7 +479,7 @@ def create_app(
         return RedirectResponse(back, status_code=303)
 
     @app.get("/vendors", response_class=HTMLResponse)
-    def vendor_list(request: Request):
+    def vendor_list(request: Request, error: str = ""):
         rows = conn.execute(
             "SELECT v.*, (SELECT COUNT(*) FROM transactions t WHERE t.vendor_id = v.id) AS n, "
             "(SELECT COUNT(*) FROM transactions t WHERE t.vendor_id = v.id AND t.excluded) AS n_excluded "
@@ -498,7 +499,7 @@ def create_app(
         ]
         return render(
             request, "vendors.html", vendors=rows, rules=rules, categories=vendors.CATEGORIES,
-            to_include=",".join(map(str, to_include)), to_include_n=len(to_include),
+            to_include=",".join(map(str, to_include)), to_include_n=len(to_include), error=error,
         )
 
     @app.post("/vendors")
@@ -510,20 +511,33 @@ def create_app(
         return RedirectResponse("/vendors", status_code=303)
 
     @app.post("/vendors/{vendor_id}")
-    def update_vendor(vendor_id: int, category: str = Form(...), recurrence: str = Form("")):
+    def update_vendor(vendor_id: int, category: str = Form(...), recurrence: str = Form(""), name: str = Form("")):
+        name = name.strip()
+        clash = name and conn.execute("SELECT 1 FROM vendors WHERE name = ? AND id != ?", (name, vendor_id)).fetchone()
+        if clash:
+            return RedirectResponse(f"/vendors?{urlencode({'error': f'There is already a vendor named {name}.'})}", status_code=303)
         conn.execute(
-            "UPDATE vendors SET category = ?, recurrence = ? WHERE id = ?",
-            (category, recurrence or None, vendor_id),
+            "UPDATE vendors SET category = ?, recurrence = ?, name = coalesce(nullif(?, ''), name) WHERE id = ?",
+            (category, recurrence or None, name, vendor_id),
         )
         conn.commit()
         return RedirectResponse("/vendors", status_code=303)
 
+    @app.post("/vendors/{vendor_id}/duplicate")
+    def duplicate_vendor(vendor_id: int):
+        new_id = vendors.duplicate_vendor(conn, vendor_id)
+        return RedirectResponse(f"/vendors#vendor-{new_id}", status_code=303)
+
     @app.post("/vendors/{vendor_id}/delete")
     def delete_vendor(vendor_id: int):
-        conn.execute("DELETE FROM vendors WHERE id = ?", (vendor_id,))
-        conn.commit()
-        vendors.apply_rules(conn)
+        vendors.delete_vendor(conn, vendor_id)
         return RedirectResponse("/vendors", status_code=303)
+
+    @app.post("/transactions/assign")
+    def assign_vendor(ids: str = Form(""), vendor_id: str = Form(...), back: str = Form("/transactions")):
+        vendors.assign_vendor(conn, [int(i) for i in ids.split(",") if i.isdigit()],
+                              int(vendor_id) if vendor_id.isdigit() else None)
+        return RedirectResponse(back if back.startswith("/") and not back.startswith("//") else "/transactions", status_code=303)
 
     @app.post("/rules")
     def add_rule(pattern: str = Form(...), vendor_id: int = Form(...)):
