@@ -23,6 +23,7 @@ CATEGORIES = [
     "Internet and phone",
     "Education and courses",
     "Computer equipment",
+    "Software (capital)",
     "Office supplies",
     "Bank and card fees",
     "Other business",

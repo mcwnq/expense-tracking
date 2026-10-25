@@ -21,15 +21,15 @@ VENDOR_BUSINESSES = [FUTURES, OPTIONS, SHARED]
 KINDS = ["Stock", "Option", "Futures"]
 DEFAULT_FUTURES_PCT = Decimal(50)
 
-# T2125 Part 5 line for each expense category: (line, name)
+# T2125 Part 4 line for each expense category: (line, name). Capital categories
+# (see cca.CAPITAL_CATEGORIES) go through CCA instead.
 LINES = {
     "Prop firm evaluations": ("9270", "Other expenses"),
     "Platform fees": ("9270", "Other expenses"),
     "Market data": ("9270", "Other expenses"),
     "Software": ("8810", "Office expenses"),
-    "Internet and phone": ("9220", "Telephone and utilities"),
+    "Internet and phone": ("9220", "Utilities"),
     "Education and courses": ("9270", "Other expenses"),
-    "Computer equipment": ("9936", "Capital cost allowance (CCA)"),
     "Office supplies": ("8811", "Office stationery and supplies"),
     "Bank and card fees": ("8710", "Interest and bank charges"),
     "Other business": ("9270", "Other expenses"),
@@ -209,10 +209,15 @@ class T2125:
     lines: list[ExpenseLine]
     unconverted: int  # expense lines or payouts left out for lack of a rate
     pct: Decimal
+    cca: "cca.Schedule"  # Area A; its total is on line 9936, recapture on line 8230
+
+    @property
+    def other_income(self) -> int:  # line 8230
+        return (self.trading or 0) + self.cca.recapture
 
     @property
     def gross(self) -> int:
-        return self.payouts + (self.trading or 0)
+        return self.payouts + self.other_income
 
     @property
     def expenses(self) -> int:
@@ -224,6 +229,8 @@ class T2125:
 
 
 def t2125(conn: sqlite3.Connection, year: int, business: str) -> T2125:
+    from . import cca
+
     pct = futures_pct(conn, year)
     biz = {r["id"]: r["business"] for r in conn.execute("SELECT id, business FROM vendors")}
     s = vendors.summary(conn, year)
@@ -239,6 +246,8 @@ def t2125(conn: sqlite3.Connection, year: int, business: str) -> T2125:
             cents, label = v.total, business
         else:
             continue
+        if v.category in cca.CAPITAL_CATEGORIES:
+            continue  # claimed through CCA
         code, name = LINES.get(v.category, ("9270", "Other expenses"))
         lines.setdefault(code, ExpenseLine(code, name)).items.append(ExpenseItem(v.name, label, cents))
 
@@ -248,8 +257,16 @@ def t2125(conn: sqlite3.Connection, year: int, business: str) -> T2125:
         unconverted = s.unconverted + sum(1 for p in paid if p["cad_cents"] is None)
     else:
         paid, payout_cents, unconverted = [], 0, s.unconverted
+    sched = cca.schedule(conn, year, business)
+    for r in sched.rows:
+        if r.claim:
+            lines.setdefault("9936", ExpenseLine("9936", "Capital cost allowance (CCA)")).items.append(
+                ExpenseItem(f"Class {r.cls} · {r.name}", "Area A", r.claim))
+        if r.terminal_loss:
+            lines.setdefault("9270", ExpenseLine("9270", "Other expenses")).items.append(
+                ExpenseItem(f"Terminal loss, class {r.cls}", "Area A", r.terminal_loss))
     entries = t5008_for(conn, year, business)
     return T2125(
         year, business, payout_cents, len(paid), net_cad(entries), len(entries),
-        [lines[c] for c in sorted(lines)], unconverted, pct,
+        [lines[c] for c in sorted(lines)], unconverted, pct, sched,
     )
