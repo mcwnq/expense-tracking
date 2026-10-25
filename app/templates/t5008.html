@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="toolbar">
+  <div>
+    <h1 style="margin:0">T5008 and trading results {{ year }}</h1>
+    <p class="muted" style="margin:4px 0 0">Enter each T5008 slip, or your broker's annual summary, under the business it belongs to. The net gain or loss goes to that business's T2125, line 8230.</p>
+  </div>
+  <form method="get" action="/t5008">
+    <input type="hidden" name="business" value="{{ business }}">
+    <label for="year">Year</label>
+    <select id="year" name="year" onchange="this.form.submit()">
+      {% for y in years %}<option {% if y == year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+    </select>
+  </form>
+</div>
+
+<nav class="tabs" aria-label="Business">
+  {% for b, n in tabs %}
+  <a href="/t5008?{{ {'year': year, 'business': b}|urlencode }}" {% if b == business %}class="on" aria-current="page"{% endif %}>{{ b }} <span class="muted">{{ n|money }}</span></a>
+  {% endfor %}
+</nav>
+
+<form class="card" method="post" action="/t5008" id="entry">
+  <div class="toolbar" style="margin-bottom:8px">
+    <h2 style="margin:0">{% if editing %}Edit entry{% else %}Add an entry to {{ business }}{% endif %}</h2>
+    <span class="muted">Required: broker, date, and either proceeds and cost or the net gain or loss</span>
+  </div>
+  {% for e in form.errors %}<p class="error" role="alert">{{ e }}</p>{% endfor %}
+  {% if editing %}<input type="hidden" name="entry_id" value="{{ editing }}">{% endif %}
+  <input type="hidden" name="year" value="{{ year }}">
+  <div class="grid">
+    <div>
+      <label for="business">Business</label>
+      <select id="business" name="business">
+        {% for b, _ in tabs %}<option {% if b == form.business %}selected{% endif %}>{{ b }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="broker">Broker (issuer) *</label>
+      <input id="broker" name="broker" value="{{ form.broker }}" placeholder="e.g. Questrade">
+    </div>
+    <div>
+      <label for="kind">Type</label>
+      <select id="kind" name="kind">{% for k in kinds %}<option {% if k == form.kind %}selected{% endif %}>{{ k }}</option>{% endfor %}</select>
+    </div>
+    <div>
+      <label for="security">Box 18 · Security or description</label>
+      <input id="security" name="security" value="{{ form.security }}" placeholder="e.g. NVDA, or SPY options (annual summary)">
+    </div>
+    <div>
+      <label for="settled_on">Settlement or year-end date *</label>
+      <input id="settled_on" name="settled_on" type="date" value="{{ form.settled_on }}">
+    </div>
+    <div>
+      <label for="currency">Box 13 · Currency</label>
+      <select id="currency" name="currency">{% for c in ("USD", "CAD") %}<option {% if c == form.currency %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+    </div>
+    <div>
+      <label for="proceeds">Box 21 · Proceeds</label>
+      <input id="proceeds" name="proceeds" inputmode="decimal" value="{{ form.proceeds }}" placeholder="0.00">
+    </div>
+    <div>
+      <label for="cost">Box 20 · Cost or book value</label>
+      <input id="cost" name="cost" inputmode="decimal" value="{{ form.cost }}" placeholder="0.00">
+    </div>
+    <div>
+      <label for="net">Net gain or loss</label>
+      <input id="net" name="net" inputmode="decimal" value="{{ form.net }}" placeholder="e.g. -120.00 for a loss">
+      <span class="small" id="net-hint"></span>
+    </div>
+  </div>
+  <button>{% if editing %}Save changes{% else %}Save entry{% endif %}</button>
+  {% if editing %}<a href="/t5008?{{ {'year': year, 'business': business}|urlencode }}" style="margin-left:12px">Cancel</a>{% endif %}
+</form>
+
+{% if rows %}
+<div class="scroll">
+<table>
+  <tr><th>Date</th><th>Broker</th><th>Type</th><th>Security</th><th class="num">Proceeds</th><th class="num">Cost</th>
+    <th class="num">Gain / loss</th><th class="num">Rate</th><th class="num">CAD</th><th></th></tr>
+  {% for r in rows %}
+  <tr>
+    <td class="nowrap">{{ r.settled_on }}</td><td>{{ r.broker }}</td><td>{{ r.kind }}</td><td>{{ r.security or "—" }}</td>
+    <td class="num">{{ r.proceeds_cents|money }}</td>
+    <td class="num">{{ r.cost_cents|money }}</td>
+    <td class="num nowrap"><strong>{{ r.net_cents|money }}</strong> {{ r.currency }}</td>
+    <td class="num muted">{{ r.fx_rate or "" }}</td>
+    <td class="num">{{ r.cad_cents|money }}</td>
+    <td class="nowrap"><a href="/t5008?edit={{ r.id }}">Edit</a>
+      <form class="inline" method="post" action="/t5008/{{ r.id }}/delete"
+        onsubmit="return confirm({{ ('Delete the ' ~ r.broker ~ ' entry from ' ~ r.settled_on ~ '?')|tojson|forceescape }})">
+        <input type="hidden" name="year" value="{{ year }}"><input type="hidden" name="business" value="{{ business }}">
+        <button class="link">Delete</button></form></td>
+  </tr>
+  {% endfor %}
+  <tfoot>
+    <tr><th colspan="8">Net trading gain, {{ business }} (to its T2125 line 8230)</th>
+      <td class="num">{{ net|money }}</td><td></td></tr>
+  </tfoot>
+</table>
+</div>
+{% if net is none %}<p class="warn">Some USD entries have no Bank of Canada rate yet (are you offline?). Reload the page to try again.</p>{% endif %}
+{% else %}<p class="muted">No {{ business }} entries for {{ year }} yet.</p>{% endif %}
+<p class="muted">USD amounts use the Bank of Canada {{ "annual average" if fx_method == "annual" else "daily" }} rate set for {{ year }} on the Summary page.</p>
+
+<script>
+// Show the calculated net while typing; the server calculates it again on save.
+(() => {
+  const f = document.getElementById("entry");
+  const num = id => { const t = f[id].value.replace(/[,\s$]/g, ""); return t === "" ? null : Number(t); };
+  const money = n => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const net = f.net, hint = document.getElementById("net-hint");
+  function update() {
+    const p = num("proceeds"), c = num("cost");
+    const ready = p !== null && c !== null && !isNaN(p) && !isNaN(c);
+    net.readOnly = ready;
+    net.classList.toggle("calculated", ready);
+    if (ready) {
+      net.value = money(p - c);
+      hint.className = "small calc";
+      hint.textContent = `Calculated: ${money(p)} − ${money(c)}`;
+    } else {
+      hint.className = "small muted";
+      hint.textContent = p !== null || c !== null ? "Enter both proceeds and cost to calculate this, or type the net here." : "";
+    }
+  }
+  f.addEventListener("input", update);
+  update();
+})();
+</script>
+{% endblock %}

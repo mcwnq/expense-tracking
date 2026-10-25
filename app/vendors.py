@@ -189,7 +189,8 @@ def duplicate_vendor(conn: sqlite3.Connection, vendor_id: int) -> int:
     while name in taken:
         name, n = f"{v['name']} - Copy {n}", n + 1
     cur = conn.execute(
-        "INSERT INTO vendors (name, category, recurrence) VALUES (?, ?, ?)", (name, v["category"], v["recurrence"])
+        "INSERT INTO vendors (name, category, recurrence, business) VALUES (?, ?, ?, ?)",
+        (name, v["category"], v["recurrence"], v["business"]),
     )
     conn.commit()
     return cur.lastrowid
@@ -202,8 +203,16 @@ def delete_vendor(conn: sqlite3.Connection, vendor_id: int) -> None:
     apply_rules(conn)
 
 
+def default_business(category: str) -> str:
+    """Prop firm evaluations are Futures; anything else starts Shared between the two businesses."""
+    return "Futures" if category == "Prop firm evaluations" else "Shared"
+
+
 def get_or_create_vendor(conn: sqlite3.Connection, name: str, category: str) -> int:
-    conn.execute("INSERT OR IGNORE INTO vendors (name, category) VALUES (?, ?)", (name.strip(), category))
+    conn.execute(
+        "INSERT OR IGNORE INTO vendors (name, category, business) VALUES (?, ?, ?)",
+        (name.strip(), category, default_business(category)),
+    )
     return conn.execute("SELECT id FROM vendors WHERE name = ?", (name.strip(),)).fetchone()[0]
 
 

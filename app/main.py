@@ -6,12 +6,12 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
-from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi import FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import db, fx, importer, payouts, vendors
+from . import business, db, fx, importer, payouts, vendors
 
 HERE = Path(__file__).parent
 
@@ -346,7 +346,7 @@ def create_app(
         return known[0] if known else date.today().year
 
     def all_years() -> list[int]:
-        return sorted(set(vendors.years(conn)) | set(payouts.years(conn)), reverse=True)
+        return sorted(set(vendors.years(conn)) | set(payouts.years(conn)) | set(business.t5008_years(conn)), reverse=True)
 
     @app.get("/summary", response_class=HTMLResponse)
     def summary(request: Request, year: int | None = None, show: str = "", cur: str = "", fx_error: str = "", assign_error: str = ""):
@@ -479,7 +479,8 @@ def create_app(
         return RedirectResponse(back, status_code=303)
 
     @app.get("/vendors", response_class=HTMLResponse)
-    def vendor_list(request: Request, error: str = ""):
+    def vendor_list(request: Request, error: str = "", year: int | None = None):
+        year = pick_year(year)
         rows = conn.execute(
             "SELECT v.*, (SELECT COUNT(*) FROM transactions t WHERE t.vendor_id = v.id) AS n, "
             "(SELECT COUNT(*) FROM transactions t WHERE t.vendor_id = v.id AND t.excluded) AS n_excluded "
@@ -497,10 +498,25 @@ def create_app(
                 sorted(vendors.EXCLUDED),
             )
         ]
+        # Shared vendors' expenses this year, split by the Futures %
+        biz = {r["id"]: r["business"] for r in rows}
+        shared = sum(v.total for v in vendors.summary(conn, year).all_vendors if biz.get(v.id) == business.SHARED)
+        pct = business.futures_pct(conn, year)
+        fut, opt = business.split_cents(shared, pct)
         return render(
             request, "vendors.html", vendors=rows, rules=rules, categories=vendors.CATEGORIES,
             to_include=",".join(map(str, to_include)), to_include_n=len(to_include), error=error,
+            year=year, years=sorted(set(all_years()) | {year, date.today().year}, reverse=True),
+            businesses=business.VENDOR_BUSINESSES, futures_pct=business.pct_text(pct),
+            options_pct=business.pct_text(100 - pct), split_set=business.is_split_set(conn, year),
+            shared_cents=shared, shared_futures=fut, shared_options=opt,
         )
+
+    @app.post("/business-split")
+    def save_split(year: int = Form(...), futures_pct: str = Form("")):
+        error = business.set_futures_pct(conn, year, futures_pct)
+        query = {"year": year, **({"error": error} if error else {})}
+        return RedirectResponse(f"/vendors?{urlencode(query)}#split", status_code=303)
 
     @app.post("/vendors")
     def add_vendor(name: str = Form(...), category: str = Form(...), pattern: str = Form("")):
@@ -511,7 +527,10 @@ def create_app(
         return RedirectResponse("/vendors", status_code=303)
 
     @app.post("/vendors/{vendor_id}")
-    def update_vendor(vendor_id: int, category: str = Form(...), recurrence: str = Form(""), name: str = Form("")):
+    def update_vendor(
+        vendor_id: int, category: str = Form(...), recurrence: str = Form(""), name: str = Form(""),
+        biz: str = Form("", alias="business"),
+    ):
         name = name.strip()
         clash = name and conn.execute("SELECT 1 FROM vendors WHERE name = ? AND id != ?", (name, vendor_id)).fetchone()
         if clash:
@@ -520,6 +539,8 @@ def create_app(
             "UPDATE vendors SET category = ?, recurrence = ?, name = coalesce(nullif(?, ''), name) WHERE id = ?",
             (category, recurrence or None, name, vendor_id),
         )
+        if biz in business.VENDOR_BUSINESSES:
+            conn.execute("UPDATE vendors SET business = ? WHERE id = ?", (biz, vendor_id))
         conn.commit()
         return RedirectResponse("/vendors", status_code=303)
 
@@ -607,6 +628,69 @@ def create_app(
         conn.execute("DELETE FROM payouts WHERE id = ?", (payout_id,))
         conn.commit()
         return RedirectResponse(f"/payouts?year={year}", status_code=303)
+
+    def _business_arg(text: str) -> str:
+        return business.FUTURES if text == business.FUTURES else business.OPTIONS
+
+    def _t5008_page(request: Request, year: int | None, biz: str, form=None, editing: int | None = None):
+        year = pick_year(year)
+        if business.net_cad(business.t5008_for(conn, year)) is None:
+            fx.fill_missing_cad(conn, fetcher)
+        tabs = [(b, business.net_cad(business.t5008_for(conn, year, b))) for b in business.BUSINESSES]
+        rows = business.t5008_for(conn, year, biz)
+        return render(
+            request, "t5008.html", year=year, years=sorted(set(all_years()) | {year, date.today().year}, reverse=True),
+            business=biz, tabs=tabs, rows=rows, net=business.net_cad(rows), kinds=business.KINDS,
+            form=form or business.T5008Form(business=biz, kind="Futures" if biz == business.FUTURES else "Stock"),
+            editing=editing, fx_method=fx.year_setting(conn, year)[0],
+        )
+
+    @app.get("/t5008", response_class=HTMLResponse)
+    def t5008_page(request: Request, year: int | None = None, biz: str = Query("", alias="business"), edit: int | None = None):
+        if edit:
+            row = conn.execute("SELECT * FROM t5008 WHERE id = ?", (edit,)).fetchone()
+            if row:
+                return _t5008_page(request, int(row["settled_on"][:4]), row["business"], business.T5008Form.from_row(row), edit)
+        return _t5008_page(request, year, _business_arg(biz))
+
+    @app.post("/t5008", response_class=HTMLResponse)
+    def save_t5008(
+        request: Request,
+        entry_id: int | None = Form(None),
+        biz: str = Form("", alias="business"),
+        broker: str = Form(""),
+        kind: str = Form("Stock"),
+        security: str = Form(""),
+        settled_on: str = Form(""),
+        currency: str = Form("USD"),
+        proceeds: str = Form(""),
+        cost: str = Form(""),
+        net: str = Form(""),
+        year: int | None = Form(None),
+    ):
+        form = business.T5008Form(biz, broker, kind, security, settled_on, currency, proceeds, cost, net)
+        if business.save_t5008(conn, form, entry_id) is None:
+            return _t5008_page(request, year, _business_arg(biz), form, entry_id)
+        fx.fill_missing_cad(conn, fetcher)
+        return RedirectResponse(f"/t5008?{urlencode({'year': settled_on[:4], 'business': biz})}", status_code=303)
+
+    @app.post("/t5008/{entry_id}/delete")
+    def delete_t5008(entry_id: int, year: int = Form(...), biz: str = Form("", alias="business")):
+        conn.execute("DELETE FROM t5008 WHERE id = ?", (entry_id,))
+        conn.commit()
+        return RedirectResponse(f"/t5008?{urlencode({'year': year, 'business': biz})}", status_code=303)
+
+    @app.get("/t2125", response_class=HTMLResponse)
+    def t2125_page(request: Request, year: int | None = None, biz: str = Query("", alias="business")):
+        year = pick_year(year)
+        biz = _business_arg(biz or business.FUTURES)
+        if payouts.monthly(conn, year)["unconverted"] or business.net_cad(business.t5008_for(conn, year)) is None:
+            fx.fill_missing_cad(conn, fetcher)
+        both = {b: business.t2125(conn, year, b) for b in business.BUSINESSES}
+        return render(
+            request, "t2125.html", year=year, years=all_years() or [year], business=biz, t=both[biz], both=both,
+            split_set=business.is_split_set(conn, year),
+        )
 
     @app.get("/imports", response_class=HTMLResponse)
     def imports(request: Request):

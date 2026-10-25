@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="toolbar">
+  <div>
+    <h1 style="margin:0">T2125 · {{ business }} · {{ year }}</h1>
+    <p class="muted" style="margin:4px 0 0">One statement per business. Expense lines come from each vendor's category. Shared vendors are split {{ t.pct|string }}% Futures / {{ (100 - t.pct)|string }}% Options &amp; Stocks{% if not split_set %} <span class="warn">(the 50/50 default: set the split on the <a href="/vendors?year={{ year }}#split">Vendors</a> page)</span>{% endif %}. All amounts in CAD.</p>
+  </div>
+  <form method="get" action="/t2125">
+    <input type="hidden" name="business" value="{{ business }}">
+    <label for="year">Year</label>
+    <select id="year" name="year" onchange="this.form.submit()">
+      {% for y in years %}<option {% if y == year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+    </select>
+  </form>
+</div>
+
+<nav class="tabs" aria-label="Business">
+  {% for b in both %}
+  <a href="/t2125?{{ {'year': year, 'business': b}|urlencode }}" {% if b == business %}class="on" aria-current="page"{% endif %}>{{ b }}</a>
+  {% endfor %}
+</nav>
+
+<div class="kpis">
+  <div><div class="label muted">Line 8299 · Gross business income</div><div class="big">{{ t.gross|money }}</div></div>
+  <div><div class="label muted">Line 9368 · Total business expenses</div><div class="big">{{ t.expenses|money }}</div></div>
+  <div class="dark"><div class="label">Line 9369 · Net income before adjustments</div><div class="big">{{ t.net|money }}</div></div>
+</div>
+{% if t.unconverted or t.trading is none %}<p class="warn">Some USD amounts have no Bank of Canada rate yet (are you offline?) and aren't counted. Reload the page to try again.</p>{% endif %}
+
+<h2>Part 3 · Business income</h2>
+<table>
+  <tr><th style="width:110px">3A / 8000</th>
+    <td>Gross sales, commissions or fees<span class="small muted">{% if business == "Futures" %}Prop firm payouts ({{ t.payout_count }}) from the <a href="/payouts?year={{ year }}">Payouts</a> page{% else %}Prop firm payouts count as Futures{% endif %}</span></td>
+    <td class="num">{{ t.payouts|money }}</td></tr>
+  <tr><th>8230</th>
+    <td>Other income<span class="small muted">Net trading result from the <a href="/t5008?{{ {'year': year, 'business': business}|urlencode }}">T5008</a> page ({{ t.trading_count }} {{ "entry" if t.trading_count == 1 else "entries" }})</span></td>
+    <td class="num">{{ (t.trading or 0)|money }}</td></tr>
+  <tfoot><tr><th>8299</th><td>Gross business income</td><td class="num">{{ t.gross|money }}</td></tr></tfoot>
+</table>
+
+<h2>Part 5 · Business expenses</h2>
+{% if t.lines %}
+<table>
+  <tr><th style="width:110px">Line</th><th>Vendor</th><th>Business</th><th class="num">CAD</th></tr>
+  {% for line in t.lines %}
+  <tr class="group"><th>{{ line.code }}</th><td colspan="2">{{ line.name }}</td><td class="num">{{ line.total|money }}</td></tr>
+  {% for it in line.items %}
+  <tr><td></td><td>{{ it.vendor }}</td><td class="muted">{{ it.business }}</td><td class="num">{{ it.cents|money }}</td></tr>
+  {% endfor %}
+  {% if line.code == "9936" %}<tr><td></td><td colspan="3" class="warn small">Equipment is usually claimed as capital cost allowance over several years, not all at once. Check the class and rate with your accountant.</td></tr>{% endif %}
+  {% endfor %}
+  <tfoot><tr><th>9368</th><td colspan="2">Total business expenses</td><td class="num">{{ t.expenses|money }}</td></tr></tfoot>
+</table>
+{% else %}<p class="muted">No {{ business }} or Shared expenses in {{ year }}.</p>{% endif %}
+
+<div class="card split-row" style="margin-top:16px">
+  <strong>Both businesses</strong>
+  {% for b, x in both.items() %}<span>{{ b }} net <strong>{{ x.net|money }}</strong></span>{% endfor %}
+  <span>Total self-employment income <strong>{{ (both.values()|sum(attribute="net"))|money }}</strong></span>
+</div>
+
+<p class="muted">These are suggestions to make filing easier, not tax advice. Review them with your accountant before you file.</p>
+{% endblock %}

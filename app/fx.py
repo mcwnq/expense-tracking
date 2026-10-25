@@ -116,11 +116,15 @@ def convert_cents(cents: int, rate: Decimal) -> int:
 
 
 # Tables holding USD amounts to convert: (table, date column, amount column)
-CONVERTED = [("transactions", "tax_date", "amount_cents"), ("payouts", "received_on", "received_cents")]
+CONVERTED = [
+    ("transactions", "tax_date", "amount_cents"),
+    ("payouts", "received_on", "received_cents"),
+    ("t5008", "settled_on", "net_cents"),
+]
 
 
 def fill_missing_cad(conn: sqlite3.Connection, fetcher: Fetcher | None = fetch_boc) -> int:
-    """Set cad_cents on any USD transactions and payouts that don't have it yet.
+    """Set cad_cents on any USD transactions, payouts and T5008 entries that don't have it yet.
 
     If a fetcher is given, missing rates are downloaded first. Returns the
     number still lacking a rate (e.g. when offline).

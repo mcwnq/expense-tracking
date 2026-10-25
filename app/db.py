@@ -112,6 +112,30 @@ CREATE TABLE IF NOT EXISTS payouts (
     cad_cents      INTEGER                -- NULL until a rate is available
 );
 
+-- Each business files its own T2125. Shared vendors' expenses are split
+-- between the two by the year's Futures % (Options & Stocks gets the rest).
+CREATE TABLE IF NOT EXISTS business_split (
+    year        INTEGER PRIMARY KEY,
+    futures_pct TEXT NOT NULL             -- decimal string, 0 to 100
+);
+
+-- T5008 slips, or a broker's annual summary, for one business. When proceeds
+-- and cost are both given, net = proceeds - cost.
+CREATE TABLE IF NOT EXISTS t5008 (
+    id             INTEGER PRIMARY KEY,
+    business       TEXT NOT NULL CHECK (business IN ('Futures', 'Options & Stocks')),
+    broker         TEXT NOT NULL,
+    kind           TEXT NOT NULL,         -- Stock, Option or Futures
+    security       TEXT,                  -- box 18
+    settled_on     TEXT NOT NULL,         -- ISO date; decides the tax year and FX rate
+    currency       TEXT NOT NULL CHECK (currency IN ('CAD', 'USD')),  -- box 13
+    proceeds_cents INTEGER,               -- box 21
+    cost_cents     INTEGER,               -- box 20
+    net_cents      INTEGER NOT NULL,      -- gain (positive) or loss (negative)
+    fx_rate        TEXT,
+    cad_cents      INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS fx_rates (
     rate_date TEXT PRIMARY KEY,          -- ISO date of the Bank of Canada observation
     usd_cad   TEXT NOT NULL,             -- decimal string
@@ -222,4 +246,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
         )
         conn.execute("CREATE TABLE IF NOT EXISTS include_undo_info (id INTEGER PRIMARY KEY CHECK (id = 1), label TEXT, at TEXT)")
         conn.execute("PRAGMA user_version = 12")
+    if version < 13:
+        # Futures and Options & Stocks are separate businesses; prop firms are Futures, the rest start Shared
+        if "business" not in [c["name"] for c in conn.execute("PRAGMA table_info(vendors)")]:
+            conn.execute("ALTER TABLE vendors ADD COLUMN business TEXT NOT NULL DEFAULT 'Shared'")
+        conn.execute("UPDATE vendors SET business = 'Futures' WHERE category = 'Prop firm evaluations'")
+        conn.execute("PRAGMA user_version = 13")
     conn.commit()
