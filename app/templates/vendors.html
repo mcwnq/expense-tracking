@@ -4,7 +4,36 @@
 <p class="muted">A rule is text to look for at the start of a word in the card description (not case-sensitive), so "FL" matches "PAYPAL *FLOWTRADE" but not "NETFLIX". When several rules match, the longest one wins, so "APEX RESET" can go to a different vendor than "APEX". Type is detected automatically (charged in 3+ months, or 2 months in a row, means recurring) unless you set it.</p>
 
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<p class="muted">Each vendor's <strong>business</strong> says which T2125 its charges go on: Futures, Options &amp; Stocks, or Shared between the two by the split below. New vendors start as Futures for prop firm evaluations and Shared otherwise.</p>
 <p class="muted">Charges from one vendor can belong on different T2125 lines, such as a course and a software subscription. Use <strong>Duplicate</strong> to make a copy with the same category and no rules, rename it and set its category, then move those lines to it on the <a href="/transactions">Transactions</a> page. New charges keep going to the vendor whose rule matches.</p>
+
+<form class="card" method="post" action="/business-split" id="split">
+  <div class="toolbar" style="margin-bottom:8px">
+    <h2 style="margin:0">How Shared vendors are split in {{ year }}</h2>
+    <span class="muted">Futures and Options &amp; Stocks each file their own T2125. Pick a split you can explain, such as time spent or trade count.</span>
+  </div>
+  <input type="hidden" name="year" value="{{ year }}">
+  <div class="split-row">
+    <div><label for="split-year">Tax year</label>
+      <select id="split-year" onchange="location = '/vendors?year=' + this.value + '#split'">
+        {% for y in years %}<option {% if y == year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+      </select></div>
+    <div><label for="futures_pct">Futures %</label>
+      <input id="futures_pct" name="futures_pct" inputmode="decimal" value="{{ futures_pct }}" size="6"></div>
+    <div><span class="label">Options &amp; Stocks %</span><output id="options_pct" class="calculated" for="futures_pct">{{ options_pct }}</output></div>
+    <button>Save split</button>
+  </div>
+  <p class="muted" style="margin:8px 0 0">
+    {% if not split_set %}<span class="warn">Not set for {{ year }} yet, so Shared vendors are split 50/50.</span> {% endif %}
+    Shared expenses in {{ year }}: <strong>{{ shared_cents|money }} CAD</strong>, so Futures {{ shared_futures|money }} and Options &amp; Stocks {{ shared_options|money }}.
+  </p>
+</form>
+<script>
+document.getElementById("futures_pct").addEventListener("input", e => {
+  const p = Number(e.target.value.replace("%", ""));
+  document.getElementById("options_pct").textContent = e.target.value.trim() !== "" && p >= 0 && p <= 100 ? +(100 - p).toFixed(4) : "—";
+});
+</script>
 
 <h2>Add a vendor</h2>
 <form class="card" method="post" action="/vendors">
@@ -28,7 +57,7 @@
 {% endif %}
 
 <table>
-  <tr><th>Vendor</th><th>Category and type</th><th>Rules</th><th class="num">Transactions</th><th></th></tr>
+  <tr><th>Vendor</th><th>Category, type and business</th><th>Rules</th><th class="num">Transactions</th><th></th></tr>
   {% for v in vendors %}
   <tr id="vendor-{{ v.id }}">
     <td><input form="vendor-form-{{ v.id }}" name="name" value="{{ v.name }}" aria-label="Name" size="22" required></td>
@@ -40,6 +69,7 @@
           <option value="recurring" {% if v.recurrence == "recurring" %}selected{% endif %}>Recurring</option>
           <option value="one-time" {% if v.recurrence == "one-time" %}selected{% endif %}>One-time</option>
         </select>
+        <select name="business" aria-label="Business">{% for b in businesses %}<option {% if b == v.business %}selected{% endif %}>{{ b }}</option>{% endfor %}</select>
         <button class="secondary">Save</button>
       </form>
     </td>

@@ -594,3 +594,55 @@ def test_duplicate_vendor_and_assign_by_hand(tmp_path):
     client.post("/transactions/assign", data={"ids": "1,2", "vendor_id": str(copy["id"])})
     client.post(f"/vendors/{copy['id']}/delete")
     assert vendor_of() == [tv, tv, tv]
+
+
+def test_two_businesses_t5008_and_t2125(tmp_path):
+    rates = {"2026-08-12": "1.3721"}
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=lambda s, e: rates))
+    client.post("/accounts", data={"name": "Visa", "currency": "CAD"})
+    base = {"filename": "a.csv", "date_col": "Date", "description_col": "Description", "amount_col": "Amount",
+            "charges_positive": 1, "has_header": 1, "format_name": "x", "account_id": 1}
+    client.post("/vendors", data={"name": "Rogers", "category": "Internet and phone", "pattern": "ROGERS"})
+    client.post("/vendors", data={"name": "OptionStrat", "category": "Software", "pattern": "OPTIONSTRAT"})
+    csv = ("Date,Description,Amount\n2026-03-02,TOPSTEP COMBINE,165.00\n2026-03-03,TRADINGVIEW,100.00\n"
+           "2026-03-04,ROGERS INTERNET,80.00\n2026-03-05,OPTIONSTRAT,30.00\n")
+    client.post("/import/confirm", data={**base, "csv_text": csv})
+
+    # prop firms start as Futures, everything else Shared; a vendor's business can be changed
+    from app import db
+
+    conn = db.connect(tmp_path / "t.db")
+    biz = {r["name"]: r["business"] for r in conn.execute("SELECT name, business FROM vendors")}
+    assert biz["Topstep"] == "Futures" and biz["TradingView"] == "Shared" and biz["OptionStrat"] == "Shared"
+    os_id = conn.execute("SELECT id FROM vendors WHERE name = 'OptionStrat'").fetchone()[0]
+    client.post(f"/vendors/{os_id}", data={"category": "Software", "business": "Options & Stocks", "name": "OptionStrat"})
+
+    # the Shared split: 50/50 until set, then the year's Futures %
+    r = client.get("/vendors?year=2026")
+    assert "Not set for 2026 yet" in r.text and "180.00 CAD" in r.text
+    r = client.post("/business-split", data={"year": 2026, "futures_pct": "160"})
+    assert "must be a number from 0 to 100" in r.text
+    r = client.post("/business-split", data={"year": 2026, "futures_pct": "60"})
+    assert "Not set for" not in r.text and "Futures 108.00 and Options &amp; Stocks 72.00" in r.text
+
+    # T5008: net is proceeds - cost (USD converted), or typed for an annual summary
+    client.post("/payouts", data={"firm": "Topstep", "currency": "CAD", "received_on": "2026-10-15", "received": "1000"})
+    r = client.post("/t5008", data={"business": "Options & Stocks", "broker": "Questrade", "kind": "Stock",
+                                    "security": "NVDA", "settled_on": "2026-08-12", "currency": "USD",
+                                    "proceeds": "7,412.00", "cost": "6,980.00", "net": "999", "year": 2026})
+    assert "432.00" in r.text and "592.75" in r.text
+    r = client.post("/t5008", data={"business": "Futures", "broker": "IBKR", "kind": "Futures",
+                                    "settled_on": "2026-12-31", "currency": "CAD", "net": "-120.00", "year": 2026})
+    assert "-120.00" in r.text
+    r = client.post("/t5008", data={"business": "Futures", "broker": "IBKR", "settled_on": "", "kind": "Futures",
+                                    "currency": "CAD", "year": 2026})
+    assert "Enter the date, proceeds and cost, or the net gain or loss." in r.text
+
+    # one T2125 per business: payouts on Futures, Shared vendors split 60/40
+    r = client.get("/t2125", params={"year": 2026, "business": "Futures"})
+    assert re.findall(r'class="big">([^<]*)<', r.text) == ["880.00", "273.00", "607.00"]
+    assert "Shared · 60% of 100.00" in r.text and "Topstep" in r.text and "OptionStrat" not in r.text
+    r = client.get("/t2125", params={"year": 2026, "business": "Options & Stocks"})
+    assert re.findall(r'class="big">([^<]*)<', r.text) == ["592.75", "102.00", "490.75"]
+    assert "Shared · 40% of 80.00" in r.text and "Prop firm payouts count as Futures" in r.text
+    assert "Total self-employment income <strong>1,097.75" in r.text

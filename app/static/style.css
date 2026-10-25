@@ -62,3 +62,13 @@ dialog { border:1px solid var(--line); padding:20px; max-width:480px; width:calc
 dialog::backdrop { background:rgba(0,0,0,.3); }
 dialog select { width:100%; margin-bottom:8px; }
 .undo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 16px; }
+.split-row { display:flex; flex-wrap:wrap; gap:16px; align-items:flex-end; }
+.split-row label, .split-row .label { display:block; font-size:13px; color:var(--muted); margin-bottom:4px; }
+output.calculated { display:inline-block; min-width:80px; padding:6px 10px; border:1px solid var(--line); }
+.tabs { display:flex; gap:4px; border-bottom:1px solid var(--line); margin-bottom:16px; }
+.tabs a { padding:8px 16px; border:1px solid transparent; color:var(--fg); text-decoration:none; }
+.tabs a.on { background:#fff; border-color:var(--line); border-bottom:2px solid var(--accent); margin-bottom:-1px; font-weight:600; }
+.kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px; margin-bottom:16px; }
+.kpis > div { background:#fff; border:1px solid var(--line); padding:12px 16px; }
+.kpis > div.dark { background:var(--fg); color:#fff; }
+.kpis .big { font-size:24px; font-variant-numeric:tabular-nums; }
