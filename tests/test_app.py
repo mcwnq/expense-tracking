@@ -493,14 +493,20 @@ def test_payout_edit_delete_and_fx_method(tmp_path):
     assert "No payouts received in 2026 yet." in client.get("/payouts?year=2026").text
 
 
-def test_summary_lists_payouts_by_prop_firm(tmp_path):
+def test_summary_shows_payouts_by_firm_and_month(tmp_path):
     client = _payout_client(tmp_path)
     for firm, cur, amount, on in [("Topstep", "USD", "100", "2026-10-15"), ("Topstep", "CAD", "50", "2026-03-18"),
                                   ("Apex Trader Funding", "USD", "200", "2026-03-18"), ("Topstep", "USD", "999", "2025-06-02")]:
         client.post("/payouts", data={"firm": firm, "currency": cur, "received_on": on, "received": amount})
     page = client.get("/summary?year=2026").text
-    section = page.split('id="payouts"')[1]
-    rows = re.findall(r"<tr><td>([^<]+)</td><td class=\"num\">(\d+)</td>.*?<strong>([^<]+)</strong>", section)
-    # Apex: 200 x 1.3584 = 271.68; Topstep: 100 x 1.3612 + 50 CAD = 186.12
-    assert rows == [("Apex Trader Funding", "1", "271.68"), ("Topstep", "2", "186.12")]
-    assert "$457.80" in page  # KPI, 2025 payout left out
+    usd, cad, all_cad = page.split('id="payouts"')[1].split("<h3>")[1:4]
+    assert usd.startswith("Received in USD · $300.00 USD") and cad.startswith("Received in CAD · $50.00 CAD")
+
+    def row(section, firm):
+        cells = re.search(rf"<td>{firm}</td>(.*?)</tr>", section, re.S).group(1)
+        return re.findall(r'<td class="num">(?:<strong>)?([^<]+)', cells)
+
+    # Apex: 200 x 1.3584 = 271.68 in March; Topstep: 50 CAD in March, 100 x 1.3612 = 136.12 in October
+    assert row(all_cad, "Apex Trader Funding") == ["1", "—", "—", "271.68"] + ["—"] * 9 + ["271.68"]
+    assert row(all_cad, "Topstep") == ["2", "—", "—", "50.00"] + ["—"] * 6 + ["136.12", "—", "—", "186.12"]
+    assert "All payouts in CAD · $457.80 CAD" in all_cad and "$457.80" in page.split("kpis")[1]  # 2025 left out
