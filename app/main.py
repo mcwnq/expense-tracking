@@ -282,6 +282,7 @@ def create_app(
             total_cad=total_cad,
             all_included=bool(rows) and not any(r["excluded"] for r in rows),
             included_count=sum(1 for r in rows if not r["excluded"]),
+            last_change=vendors.last_include_change(conn),
         )
 
     @app.post("/transactions/add")
@@ -310,6 +311,11 @@ def create_app(
     @app.post("/transactions/set-included")
     def set_included_many(ids: str = Form(""), included: int = Form(1), back: str = Form("/transactions")):
         vendors.set_included_ids(conn, [int(i) for i in ids.split(",") if i.isdigit()], bool(included))
+        return RedirectResponse(back if back.startswith("/") and not back.startswith("//") else "/transactions", status_code=303)
+
+    @app.post("/transactions/undo-include")
+    def undo_include(back: str = Form("/transactions")):
+        vendors.undo_include(conn)
         return RedirectResponse(back if back.startswith("/") and not back.startswith("//") else "/transactions", status_code=303)
 
     @app.get("/formats", response_class=HTMLResponse)

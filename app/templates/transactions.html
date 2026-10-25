@@ -4,7 +4,7 @@
     <input type="hidden" name="included" value="{{ 0 if all_included else 1 }}">
     <label style="display:inline; color:inherit; font-size:inherit"><input type="checkbox" {% if all_included %}checked{% endif %}
       {% if not all_included and included_count %}data-mixed{% endif %}
-      onchange="if (confirm({{ ((('Exclude' if all_included else 'Include') ~ ' all ' ~ rows|length ~ ' transactions shown?'))|tojson|forceescape }})) this.form.requestSubmit(); else this.checked = !this.checked"
+      onchange="if (confirm({{ ((('Exclude' if all_included else 'Include') ~ ' all ' ~ rows|length ~ ' transactions shown ' ~ ('from' if all_included else 'in') ~ ' business expenses? This changes the lines themselves. To narrow the list, use Show above.'))|tojson|forceescape }})) this.form.requestSubmit(); else this.checked = !this.checked"
       aria-label="Include all shown transactions"> Include all</label></form></th>{% endmacro %}
 {% block content %}
 <h1>Transactions</h1>
@@ -40,6 +40,14 @@
   </form>
 </details>
 {% endif %}
+{% if last_change %}
+<form class="card undo" method="post" action="/transactions/undo-include" role="status">
+  <input type="hidden" name="back" value="{{ here }}">
+  Last bulk change: {{ last_change.label }} on {{ last_change.at }}.
+  <button class="secondary">Undo</button>
+  <span class="muted small">Puts each of those lines back to how it was before.</span>
+</form>
+{% endif %}
 <div class="toolbar">
   <div class="segmented" role="group" aria-label="View">
     <a href="{{ here_for('lines') }}" {% if view == "lines" %}class="on" aria-current="true"{% endif %}>Lines</a><a href="{{ here_for('merchants') }}" {% if view == "merchants" %}class="on" aria-current="true"{% endif %}>By merchant</a>
@@ -48,7 +56,7 @@
   <div>
     {% for inc, label in [(1, "Include"), (0, "Exclude")] %}
     <form class="inline" method="post" action="/transactions/set-included"
-      onsubmit="return confirm({{ (label ~ ' all ' ~ rows|length ~ ' transactions shown?')|tojson|forceescape }})">
+      onsubmit="return confirm({{ (label ~ ' all ' ~ rows|length ~ ' transactions shown ' ~ ('in' if inc else 'from') ~ ' business expenses?')|tojson|forceescape }})">
       <input type="hidden" name="ids" value="{{ all_ids }}"><input type="hidden" name="included" value="{{ inc }}">
       <input type="hidden" name="back" value="{{ here }}">
       <button class="secondary">{{ label }} all {{ rows|length }} shown</button></form>

@@ -211,4 +211,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
 
         apply_rules(conn)
         conn.execute("PRAGMA user_version = 11")
+    if version < 12:
+        # The last bulk include/exclude, so it can be undone
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS include_undo (txn_id INTEGER PRIMARY KEY, excluded INTEGER NOT NULL)"
+        )
+        conn.execute("CREATE TABLE IF NOT EXISTS include_undo_info (id INTEGER PRIMARY KEY CHECK (id = 1), label TEXT, at TEXT)")
+        conn.execute("PRAGMA user_version = 12")
     conn.commit()
