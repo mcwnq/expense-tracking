@@ -173,6 +173,25 @@ def test_undo_bulk_include(tmp_path):
     assert "2 included" in client.get("/transactions").text
 
 
+def test_include_all_vendor_lines(tmp_path):
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=None))
+    client.post("/accounts", data={"name": "Amex", "currency": "CAD"})
+    client.post("/vendors", data={"name": "Topstep", "category": "Prop firm evaluations", "pattern": "TOPSTEP"})
+    client.post("/vendors", data={"name": "Groceries", "category": "Personal (exclude)", "pattern": "GROCERY"})
+    base = {"filename": "a.csv", "date_col": "Date", "description_col": "Description", "amount_col": "Amount",
+            "charges_positive": 1, "has_header": 1, "format_name": "x", "account_id": 1}
+    csv = ("Date,Description,Amount\n2026-03-02,TOPSTEP EVAL,50.00\n2026-03-03,TOPSTEP RESET,20.00\n"
+           "2026-03-04,GROCERY STORE,10.00\n2026-03-05,MYSTERY SHOP,5.00\n")
+    client.post("/import/confirm", data={**base, "csv_text": csv})
+    client.post("/transactions/set-included", data={"ids": "1,2,3,4", "included": 0})
+
+    r = client.get("/vendors")
+    assert "Include all 2</button>" in r.text and "2 excluded" in r.text and 'name="ids" value="1,2"' in r.text
+    r = client.post("/transactions/set-included", data={"ids": "1,2", "included": 1, "back": "/transactions"})
+    assert "2 included" in r.text  # the Personal vendor and the line with no vendor stay excluded
+    assert "Include all 2</button>" not in client.get("/vendors").text
+
+
 def test_edit_and_delete_card(tmp_path):
     client = TestClient(create_app(tmp_path / "t.db", fetcher=lambda s, e: {}))
     client.post("/accounts", data={"name": "Visa", "currency": "CAD"})

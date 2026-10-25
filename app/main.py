@@ -480,13 +480,26 @@ def create_app(
     @app.get("/vendors", response_class=HTMLResponse)
     def vendor_list(request: Request):
         rows = conn.execute(
-            "SELECT v.*, (SELECT COUNT(*) FROM transactions t WHERE t.vendor_id = v.id) AS n "
+            "SELECT v.*, (SELECT COUNT(*) FROM transactions t WHERE t.vendor_id = v.id) AS n, "
+            "(SELECT COUNT(*) FROM transactions t WHERE t.vendor_id = v.id AND t.excluded) AS n_excluded "
             "FROM vendors v ORDER BY v.category, v.name"
         ).fetchall()
         rules: dict[int, list] = {}
         for r in conn.execute("SELECT * FROM vendor_rules ORDER BY pattern"):
             rules.setdefault(r["vendor_id"], []).append(r)
-        return render(request, "vendors.html", vendors=rows, rules=rules, categories=vendors.CATEGORIES)
+        # Excluded lines of business vendors, for "Include all"
+        to_include = [
+            r[0]
+            for r in conn.execute(
+                "SELECT t.id FROM transactions t JOIN vendors v ON v.id = t.vendor_id "
+                f"WHERE t.excluded AND v.category NOT IN ({', '.join('?' * len(vendors.EXCLUDED))})",
+                sorted(vendors.EXCLUDED),
+            )
+        ]
+        return render(
+            request, "vendors.html", vendors=rows, rules=rules, categories=vendors.CATEGORIES,
+            to_include=",".join(map(str, to_include)), to_include_n=len(to_include),
+        )
 
     @app.post("/vendors")
     def add_vendor(name: str = Form(...), category: str = Form(...), pattern: str = Form("")):
