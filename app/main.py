@@ -335,8 +335,11 @@ def create_app(
     def pick_year(year: int | None) -> int:
         if year:
             return year
-        known = vendors.years(conn)
+        known = all_years()
         return known[0] if known else date.today().year
+
+    def all_years() -> list[int]:
+        return sorted(set(vendors.years(conn)) | set(payouts.years(conn)), reverse=True)
 
     @app.get("/summary", response_class=HTMLResponse)
     def summary(request: Request, year: int | None = None, show: str = "", cur: str = "", fx_error: str = "", assign_error: str = ""):
@@ -354,7 +357,8 @@ def create_app(
             tables=tables,
             cur=cur,
             show=show,
-            years=vendors.years(conn) or [year],
+            years=all_years() or [year],
+            firm_payouts=summary_payouts(year),
             unassigned=(unassigned := vendors.unassigned(conn, year)),
             unassigned_groups=vendors.group_by_merchant(unassigned),
             year_end=vendors.year_end_check(conn, year),
@@ -370,6 +374,15 @@ def create_app(
                 (str(year),),
             ).fetchone()[0],
         )
+
+    def summary_payouts(year: int) -> dict:
+        firms = payouts.by_firm(conn, year)
+        if any(f["cad_total"] is None for f in firms):
+            fx.fill_missing_cad(conn, fetcher)
+            firms = payouts.by_firm(conn, year)
+        totals = {k: sum(f[k] for f in firms) for k in ("n", "USD", "CAD")}
+        totals["cad_total"] = None if any(f["cad_total"] is None for f in firms) else sum(f["cad_total"] for f in firms)
+        return {"firms": firms, "totals": totals}
 
     def summary_in(year: int, only: str | None, currency: str) -> vendors.Summary:
         s = vendors.summary(conn, year, only, currency)

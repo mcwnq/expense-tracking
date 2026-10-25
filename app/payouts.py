@@ -138,3 +138,15 @@ def totals(rows: list[sqlite3.Row]) -> dict:
     by_cur = {c: sum(r["received_cents"] for r in rows if r["currency"] == c) for c in ("USD", "CAD")}
     cad = None if any(r["cad_cents"] is None for r in rows) else sum(r["cad_cents"] for r in rows)
     return {"USD": by_cur["USD"], "CAD": by_cur["CAD"], "cad_total": cad}
+
+
+def by_firm(conn: sqlite3.Connection, year: int) -> list[dict]:
+    """Payouts received in the year per prop firm: count, amount in each original
+    currency, and the total in CAD (None while a USD payout has no rate)."""
+    firms: dict[str, dict] = {}
+    for r in for_year(conn, year):
+        f = firms.setdefault(r["firm"], {"firm": r["firm"], "n": 0, "USD": 0, "CAD": 0, "cad_total": 0})
+        f["n"] += 1
+        f[r["currency"]] += r["received_cents"]
+        f["cad_total"] = None if f["cad_total"] is None or r["cad_cents"] is None else f["cad_total"] + r["cad_cents"]
+    return sorted(firms.values(), key=lambda f: f["firm"])

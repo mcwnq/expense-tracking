@@ -17,6 +17,7 @@
   <div class="kpi"><div class="label">Total expenses ({{ s.currency }})</div><div class="value">${{ s.total|money }}</div></div>
   <div class="kpi"><div class="label">Recurring · {{ s.count_for("recurring") }} vendors</div><div class="value">${{ s.total_for("recurring")|money }}</div></div>
   <div class="kpi"><div class="label">One-time · {{ s.count_for("one-time") }} vendors</div><div class="value">${{ s.total_for("one-time")|money }}</div></div>
+  <div class="kpi"><div class="label">Payouts received (CAD)</div><div class="value">${{ firm_payouts.totals.cad_total|money }}</div><a href="#payouts" style="color:inherit">By prop firm</a></div>
   <div class="kpi {% if unassigned %}attention{% endif %}"><div class="label">Need a vendor</div><div class="value">{{ unassigned|length }}</div>{% if unassigned %}<a href="#unassigned" style="color:inherit">Assign them</a>{% endif %}</div>
 </div>
 <form class="card" method="post" action="/tax-years/{{ s.year }}/fx" style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end">
@@ -81,6 +82,20 @@
 </div>
 <p class="muted" id="all-charges" style="margin-top:0">USD and CAD charges together, converted at the Bank of Canada rate used for {{ s.year }} ({{ "annual average" if fx_method == "annual" else "daily" }}).{% if s.unconverted %} <span class="warn">{{ s.unconverted }} line(s) have no rate yet and aren't counted.</span>{% endif %}</p>
 {{ pivot(s) }}
+
+<h2 id="payouts">Payouts received by prop firm</h2>
+{% if firm_payouts.firms %}
+<p class="muted" style="margin-top:0">Payouts received in {{ s.year }}, the business income for T2125 line 8000. Add or edit them on the <a href="/payouts?year={{ s.year }}">Payouts</a> page.</p>
+<table>
+  <tr><th>Prop firm</th><th class="num">Payouts</th><th class="num">Received in USD</th><th class="num">Received in CAD</th><th class="num">Total in CAD</th></tr>
+  {% for f in firm_payouts.firms %}
+  <tr><td>{{ f.firm }}</td><td class="num">{{ f.n }}</td><td class="num">{{ f.USD|money if f.USD else "—" }}</td><td class="num">{{ f.CAD|money if f.CAD else "—" }}</td><td class="num"><strong>{{ f.cad_total|money }}</strong></td></tr>
+  {% endfor %}
+  {% set t = firm_payouts.totals %}
+  <tfoot><tr><th>Total</th><td class="num">{{ t.n }}</td><td class="num">{{ t.USD|money if t.USD else "—" }}</td><td class="num">{{ t.CAD|money if t.CAD else "—" }}</td><td class="num">{{ t.cad_total|money }}</td></tr></tfoot>
+</table>
+{% if t.cad_total is none %}<p class="warn">Some USD payouts have no Bank of Canada rate yet and show "—". Reload to try again.</p>{% endif %}
+{% else %}<p class="muted">No payouts received in {{ s.year }}. Add them on the <a href="/payouts?year={{ s.year }}">Payouts</a> page.</p>{% endif %}
 
 {% if year_end %}
 <h2 id="year-end">Year-end check</h2>
