@@ -140,13 +140,29 @@ def totals(rows: list[sqlite3.Row]) -> dict:
     return {"USD": by_cur["USD"], "CAD": by_cur["CAD"], "cad_total": cad}
 
 
-def by_firm(conn: sqlite3.Connection, year: int) -> list[dict]:
-    """Payouts received in the year per prop firm: count, amount in each original
-    currency, and the total in CAD (None while a USD payout has no rate)."""
+def monthly(conn: sqlite3.Connection, year: int, currency: str | None = None) -> dict:
+    """Payouts received in the year per prop firm and month, laid out like the
+    expense tables. currency picks payouts received in that currency, in that
+    currency; None means all payouts in CAD (ones without a rate yet are counted
+    in "unconverted" and left out)."""
     firms: dict[str, dict] = {}
+    unconverted = 0
     for r in for_year(conn, year):
-        f = firms.setdefault(r["firm"], {"firm": r["firm"], "n": 0, "USD": 0, "CAD": 0, "cad_total": 0})
+        if currency and r["currency"] != currency:
+            continue
+        cents = r["received_cents"] if currency else r["cad_cents"]
+        if cents is None:
+            unconverted += 1
+            continue
+        f = firms.setdefault(r["firm"], {"firm": r["firm"], "n": 0, "months": [0] * 12, "total": 0})
         f["n"] += 1
-        f[r["currency"]] += r["received_cents"]
-        f["cad_total"] = None if f["cad_total"] is None or r["cad_cents"] is None else f["cad_total"] + r["cad_cents"]
-    return sorted(firms.values(), key=lambda f: f["firm"])
+        f["months"][int(r["received_on"][5:7]) - 1] += cents
+        f["total"] += cents
+    rows = sorted(firms.values(), key=lambda f: f["firm"])
+    return {
+        "rows": rows,
+        "month_totals": [sum(f["months"][m] for f in rows) for m in range(12)],
+        "total": sum(f["total"] for f in rows),
+        "n": sum(f["n"] for f in rows),
+        "unconverted": unconverted,
+    }

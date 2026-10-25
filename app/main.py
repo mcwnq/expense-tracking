@@ -376,13 +376,11 @@ def create_app(
         )
 
     def summary_payouts(year: int) -> dict:
-        firms = payouts.by_firm(conn, year)
-        if any(f["cad_total"] is None for f in firms):
+        """Payouts by firm and month: received in USD, received in CAD, and all in CAD."""
+        if payouts.monthly(conn, year)["unconverted"]:
             fx.fill_missing_cad(conn, fetcher)
-            firms = payouts.by_firm(conn, year)
-        totals = {k: sum(f[k] for f in firms) for k in ("n", "USD", "CAD")}
-        totals["cad_total"] = None if any(f["cad_total"] is None for f in firms) else sum(f["cad_total"] for f in firms)
-        return {"firms": firms, "totals": totals}
+        return {"USD": payouts.monthly(conn, year, "USD"), "CAD": payouts.monthly(conn, year, "CAD"),
+                "all": payouts.monthly(conn, year)}
 
     def summary_in(year: int, only: str | None, currency: str) -> vendors.Summary:
         s = vendors.summary(conn, year, only, currency)
