@@ -283,6 +283,7 @@ def create_app(
             total_cad=total_cad,
             all_included=bool(rows) and not any(r["excluded"] for r in rows),
             included_count=sum(1 for r in rows if not r["excluded"]),
+            last_change=vendors.last_include_change(conn),
         )
 
     @app.post("/transactions/add")
@@ -311,6 +312,11 @@ def create_app(
     @app.post("/transactions/set-included")
     def set_included_many(ids: str = Form(""), included: int = Form(1), back: str = Form("/transactions")):
         vendors.set_included_ids(conn, [int(i) for i in ids.split(",") if i.isdigit()], bool(included))
+        return RedirectResponse(back if back.startswith("/") and not back.startswith("//") else "/transactions", status_code=303)
+
+    @app.post("/transactions/undo-include")
+    def undo_include(back: str = Form("/transactions")):
+        vendors.undo_include(conn)
         return RedirectResponse(back if back.startswith("/") and not back.startswith("//") else "/transactions", status_code=303)
 
     @app.get("/formats", response_class=HTMLResponse)
@@ -475,13 +481,26 @@ def create_app(
     @app.get("/vendors", response_class=HTMLResponse)
     def vendor_list(request: Request, error: str = ""):
         rows = conn.execute(
-            "SELECT v.*, (SELECT COUNT(*) FROM transactions t WHERE t.vendor_id = v.id) AS n "
+            "SELECT v.*, (SELECT COUNT(*) FROM transactions t WHERE t.vendor_id = v.id) AS n, "
+            "(SELECT COUNT(*) FROM transactions t WHERE t.vendor_id = v.id AND t.excluded) AS n_excluded "
             "FROM vendors v ORDER BY v.category, v.name"
         ).fetchall()
         rules: dict[int, list] = {}
         for r in conn.execute("SELECT * FROM vendor_rules ORDER BY pattern"):
             rules.setdefault(r["vendor_id"], []).append(r)
-        return render(request, "vendors.html", vendors=rows, rules=rules, categories=vendors.CATEGORIES, error=error)
+        # Excluded lines of business vendors, for "Include all"
+        to_include = [
+            r[0]
+            for r in conn.execute(
+                "SELECT t.id FROM transactions t JOIN vendors v ON v.id = t.vendor_id "
+                f"WHERE t.excluded AND v.category NOT IN ({', '.join('?' * len(vendors.EXCLUDED))})",
+                sorted(vendors.EXCLUDED),
+            )
+        ]
+        return render(
+            request, "vendors.html", vendors=rows, rules=rules, categories=vendors.CATEGORIES,
+            to_include=",".join(map(str, to_include)), to_include_n=len(to_include), error=error,
+        )
 
     @app.post("/vendors")
     def add_vendor(name: str = Form(...), category: str = Form(...), pattern: str = Form("")):

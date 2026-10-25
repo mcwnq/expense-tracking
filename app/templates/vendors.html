@@ -16,6 +16,17 @@
   <button>Add vendor</button>
 </form>
 
+{% if to_include_n %}
+<form class="card undo" method="post" action="/transactions/set-included"
+  onsubmit="return confirm({{ ('Include all ' ~ to_include_n ~ ' excluded transactions from business vendors in business expenses?')|tojson|forceescape }})">
+  <input type="hidden" name="ids" value="{{ to_include }}"><input type="hidden" name="included" value="1">
+  <input type="hidden" name="back" value="/transactions?show=included&amp;view=merchants">
+  {{ to_include_n }} transactions matched to a vendor are excluded. Vendors with a Personal or Card payment category are left out.
+  <button class="secondary">Include all {{ to_include_n }}</button>
+  <span class="muted small">You can undo it on the Transactions page.</span>
+</form>
+{% endif %}
+
 <table>
   <tr><th>Vendor</th><th>Category and type</th><th>Rules</th><th class="num">Transactions</th><th></th></tr>
   {% for v in vendors %}
@@ -38,7 +49,7 @@
       {% endfor %}
       <form class="inline" method="post" action="/rules"><input type="hidden" name="vendor_id" value="{{ v.id }}"><input name="pattern" size="12" placeholder="add rule" aria-label="New rule for {{ v.name }}"></form>
     </td>
-    <td class="num">{{ v.n }}</td>
+    <td class="num">{{ v.n }}{% if v.n_excluded %}<br><span class="muted small">{{ v.n_excluded }} excluded</span>{% endif %}</td>
     <td class="nowrap"><form class="inline" method="post" action="/vendors/{{ v.id }}/duplicate"><button class="link" style="color:var(--accent)" title="Copy with the same category and no rules">Duplicate</button></form>
       · <form class="inline" method="post" action="/vendors/{{ v.id }}/delete" onsubmit="return confirm({{ ('Delete ' ~ v.name ~ '? Its transactions go back to the rules, or become unassigned.')|tojson|forceescape }})"><button class="link">Delete</button></form></td>
   </tr>

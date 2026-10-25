@@ -477,9 +477,40 @@ def group_by_merchant(rows: list[sqlite3.Row]) -> list[MerchantGroup]:
 
 
 def set_included_ids(conn: sqlite3.Connection, ids: list[int], included: bool) -> None:
-    """Include or exclude several transactions at once."""
+    """Include or exclude several transactions at once, remembering the old
+    values so the change can be undone with undo_include."""
+    if len(ids) > 1:
+        conn.execute("DELETE FROM include_undo")
+        conn.executemany(
+            "INSERT INTO include_undo (txn_id, excluded) SELECT id, excluded FROM transactions WHERE id = ?",
+            [(i,) for i in ids],
+        )
+        label = f"{'Included' if included else 'Excluded'} {len(ids)} transactions"
+        conn.execute(
+            "INSERT OR REPLACE INTO include_undo_info (id, label, at) VALUES (1, ?, datetime('now', 'localtime'))",
+            (label,),
+        )
     conn.executemany("UPDATE transactions SET excluded = ? WHERE id = ?", [(0 if included else 1, i) for i in ids])
     conn.commit()
+
+
+def last_include_change(conn: sqlite3.Connection) -> sqlite3.Row | None:
+    """The bulk include/exclude that undo_include would reverse, if any."""
+    if not conn.execute("SELECT 1 FROM include_undo LIMIT 1").fetchone():
+        return None
+    return conn.execute("SELECT label, substr(at, 1, 16) AS at FROM include_undo_info WHERE id = 1").fetchone()
+
+
+def undo_include(conn: sqlite3.Connection) -> int:
+    """Put back the Include values from before the last bulk include/exclude."""
+    n = conn.execute(
+        "UPDATE transactions SET excluded = (SELECT u.excluded FROM include_undo u WHERE u.txn_id = transactions.id) "
+        "WHERE id IN (SELECT txn_id FROM include_undo)"
+    ).rowcount
+    conn.execute("DELETE FROM include_undo")
+    conn.execute("DELETE FROM include_undo_info")
+    conn.commit()
+    return n
 
 
 def set_excluded(conn: sqlite3.Connection, txn_id: int, excluded: bool) -> None:
