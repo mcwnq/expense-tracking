@@ -440,3 +440,54 @@ def test_assign_explains_when_nothing_matches(tmp_path):
     page = client.post("/assign", data={"pattern": "TOPSTEP COMBINE", "vendor_id": "new", "new_vendor": "Topstep eval",
                                         "category": "Prop firm evaluations", "back": back}).text
     assert "Transactions that need a vendor" not in page
+
+
+def _payout_client(tmp_path):
+    rates = {"2026-10-14": "1.3600", "2026-10-15": "1.3612", "2026-03-18": "1.3584"}
+    return TestClient(create_app(tmp_path / "t.db", fetcher=lambda s, e: rates))
+
+
+def test_payout_calculated_from_share_and_fees(tmp_path):
+    client = _payout_client(tmp_path)
+    page = client.get("/payouts?year=2026").text
+    firms = re.findall(r"<option\s*>([^<]+)</option>", page.split('id="firm"')[1].split("</select>")[0])
+    assert "Topstep" in firms and "Tradovate" not in firms  # prop firms only
+    r = client.post("/payouts", data={"firm": "Topstep", "currency": "USD", "paid_via": "Rise", "split_pct": "90",
+                                      "approved": "2,400.00", "approved_on": "2026-10-10", "fees": "25",
+                                      "received_on": "2026-10-15", "received": "999"})  # typed amount is ignored
+    page = r.text
+    assert "2,135.00</strong> USD" in page and "1.3612" in page and "2,906.16" in page  # 2135 x 1.3612
+    assert "Rise" in page and "90%" in page
+
+
+def test_payout_with_only_required_fields(tmp_path):
+    client = _payout_client(tmp_path)
+    page = client.post("/payouts", data={"firm": "Apex Trader Funding", "currency": "CAD",
+                                         "received_on": "2026-03-18", "received": "1,000"}).text
+    assert "1,000.00</strong> CAD" in page
+    assert re.search(r'<td class="num">1,000.00</td>\s*<td class="nowrap">', page)  # CAD column, no conversion
+
+
+def test_payout_errors_keep_what_was_typed(tmp_path):
+    client = _payout_client(tmp_path)
+    page = client.post("/payouts", data={"firm": "Topstep", "currency": "USD", "paid_via": "Wise",
+                                         "split_pct": "90", "received_on": ""}).text
+    assert "Enter the payout received date, amount received." in page
+    assert 'value="Wise"' in page and 'value="90"' in page
+    page = client.post("/payouts", data={"firm": "Topstep", "currency": "USD", "split_pct": "150",
+                                         "approved": "100", "received_on": "2026-10-15"}).text
+    assert "My share % must be a number from 1 to 100." in page
+
+
+def test_payout_edit_delete_and_fx_method(tmp_path):
+    client = _payout_client(tmp_path)
+    client.post("/payouts", data={"firm": "Topstep", "currency": "USD", "received_on": "2026-10-15", "received": "100"})
+    page = client.get("/payouts?edit=1").text
+    assert "Edit payout" in page and 'value="100.00"' in page
+    client.post("/payouts", data={"payout_id": 1, "firm": "Topstep", "currency": "USD", "received_on": "2026-10-15",
+                                  "received": "200"})
+    client.post("/tax-years/2026/fx", data={"method": "annual", "annual_rate": "1.4000"})
+    page = client.get("/payouts?year=2026").text
+    assert "200.00</strong> USD" in page and "280.00" in page  # re-converted at the annual rate
+    client.post("/payouts/1/delete", data={"year": 2026})
+    assert "No payouts received in 2026 yet." in client.get("/payouts?year=2026").text

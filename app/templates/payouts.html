@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="toolbar">
+  <div>
+    <h1 style="margin:0">Prop firm payouts {{ year }}</h1>
+    <p class="muted" style="margin:4px 0 0">Payouts you received count as business income on your T2125 (line 8000).</p>
+  </div>
+  <form method="get" action="/payouts">
+    <label for="year">Year</label>
+    <select id="year" name="year" onchange="this.form.submit()">
+      {% for y in years %}<option {% if y == year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+    </select>
+  </form>
+</div>
+
+<form class="card" method="post" action="/payouts" id="payout">
+  <div class="toolbar" style="margin-bottom:8px">
+    <h2 style="margin:0">{% if editing %}Edit payout{% else %}Add a payout{% endif %}</h2>
+    <span class="muted">Required: prop firm, payout received date and amount received</span>
+  </div>
+  {% for e in form.errors %}<p class="error" role="alert">{{ e }}</p>{% endfor %}
+  {% if editing %}<input type="hidden" name="payout_id" value="{{ editing }}">{% endif %}
+  <input type="hidden" name="year" value="{{ year }}">
+
+  <div class="grid">
+    <div>
+      <label for="firm">Prop firm *</label>
+      <select id="firm" name="firm">
+        <option value="">Choose a prop firm…</option>
+        {% for f in firms %}<option {% if f == form.firm %}selected{% endif %}>{{ f }}</option>{% endfor %}
+      </select>
+      {% if not firms %}<p class="warn" style="margin:4px 0 0">No vendors have the category {{ firm_category }} yet. Set it on the <a href="/vendors">Vendors</a> page.</p>
+      {% else %}<span class="muted small">Vendors with the category {{ firm_category }}</span>{% endif %}
+    </div>
+    <div>
+      <label for="currency">Currency</label>
+      <select id="currency" name="currency">
+        {% for c in ("USD", "CAD") %}<option {% if c == form.currency %}selected{% endif %}>{{ c }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="paid_via">Paid via (optional)</label>
+      <input id="paid_via" name="paid_via" list="paid-via-options" value="{{ form.paid_via }}" placeholder="e.g. Rise">
+      <datalist id="paid-via-options">{% for v in paid_via %}<option value="{{ v }}">{% endfor %}</datalist>
+    </div>
+  </div>
+
+  <fieldset>
+    <legend>Payout details (optional)</legend>
+    <div class="grid" style="margin-bottom:0">
+      <div>
+        <label for="split_pct">My share %</label>
+        <input id="split_pct" name="split_pct" inputmode="decimal" value="{{ form.split_pct }}" placeholder="e.g. 90">
+        <span class="muted small" id="firm-share"></span>
+      </div>
+      <div>
+        <label for="approved">Payout amount approved</label>
+        <input id="approved" name="approved" inputmode="decimal" value="{{ form.approved }}" placeholder="0.00">
+      </div>
+      <div>
+        <label for="approved_on">Payout approved date</label>
+        <input id="approved_on" name="approved_on" type="date" value="{{ form.approved_on }}">
+      </div>
+      <div>
+        <label for="fees">Other fees</label>
+        <input id="fees" name="fees" inputmode="decimal" value="{{ form.fees }}" placeholder="0.00">
+        <span class="muted small">e.g. transfer or withdrawal fees</span>
+      </div>
+    </div>
+  </fieldset>
+
+  <div class="grid" style="margin-top:12px">
+    <div>
+      <label for="received_on">Payout received date *</label>
+      <input id="received_on" name="received_on" type="date" value="{{ form.received_on }}">
+    </div>
+    <div>
+      <label for="received">Amount received *</label>
+      <input id="received" name="received" inputmode="decimal" value="{{ form.received }}" placeholder="0.00">
+      <span class="small" id="received-hint"></span>
+    </div>
+  </div>
+
+  <button>{% if editing %}Save changes{% else %}Save payout{% endif %}</button>
+  {% if editing %}<a href="/payouts?year={{ year }}" style="margin-left:12px">Cancel</a>{% endif %}
+</form>
+
+{% if rows %}
+<div class="scroll">
+<table>
+  <tr><th>Received</th><th>Prop firm</th><th>Paid via</th><th>Approved</th><th class="num">Approved amount</th>
+    <th class="num">My share</th><th class="num">Other fees</th><th class="num">Amount received</th><th class="num">Rate</th><th class="num">CAD</th><th></th></tr>
+  {% for p in rows %}
+  <tr>
+    <td class="nowrap">{{ p.received_on }}</td><td>{{ p.firm }}</td><td>{{ p.paid_via or "—" }}</td>
+    <td class="nowrap">{{ p.approved_on or "—" }}</td>
+    <td class="num">{{ p.approved_cents|money }}</td>
+    <td class="num">{{ (p.split_pct ~ "%") if p.split_pct else "—" }}</td>
+    <td class="num">{{ p.fees_cents|money }}</td>
+    <td class="num nowrap"><strong>{{ p.received_cents|money }}</strong> {{ p.currency }}</td>
+    <td class="num muted">{{ p.fx_rate or "" }}</td>
+    <td class="num">{{ p.cad_cents|money }}</td>
+    <td class="nowrap"><a href="/payouts?edit={{ p.id }}">Edit</a>
+      <form class="inline" method="post" action="/payouts/{{ p.id }}/delete"
+        onsubmit="return confirm({{ ('Delete the ' ~ p.firm ~ ' payout received ' ~ p.received_on ~ '?')|tojson|forceescape }})">
+        <input type="hidden" name="year" value="{{ year }}"><button class="link">Delete</button></form></td>
+  </tr>
+  {% endfor %}
+  <tfoot>
+    <tr><th colspan="7">Total payouts, to T2125 line 8000</th>
+      <td class="num nowrap">{% if totals.USD %}{{ totals.USD|money }} USD{% endif %}{% if totals.USD and totals.CAD %}<br>{% endif %}{% if totals.CAD %}{{ totals.CAD|money }} CAD{% endif %}</td>
+      <td></td><td class="num">{{ totals.cad_total|money }}</td><td></td></tr>
+  </tfoot>
+</table>
+</div>
+{% if totals.cad_total is none %}<p class="warn">Some USD payouts have no Bank of Canada rate yet (are you offline?). Reload the page to try again.</p>{% endif %}
+{% else %}<p class="muted">No payouts received in {{ year }} yet.</p>{% endif %}
+
+<script>
+// Show the calculated amount received while typing; the server calculates it again on save.
+(() => {
+  const f = document.getElementById("payout");
+  const num = id => { const t = f[id].value.replace(/[,\s$%]/g, ""); return t === "" ? null : Number(t); };
+  const money = n => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const received = f.received, hint = document.getElementById("received-hint"), share = document.getElementById("firm-share");
+  function update() {
+    const split = num("split_pct"), approved = num("approved"), fees = num("fees") || 0;
+    share.textContent = split > 0 && split <= 100 ? `Prop firm keeps ${+(100 - split).toFixed(2)}%` : "";
+    const ready = split !== null && approved !== null && !isNaN(split) && !isNaN(approved) && !isNaN(fees);
+    received.readOnly = ready;
+    received.classList.toggle("calculated", ready);
+    if (ready) {
+      received.value = money(Math.round(approved * split) / 100 - fees);
+      hint.className = "small calc";
+      hint.textContent = `Calculated: ${split}% × ${money(approved)} − ${money(fees)} fees`;
+    } else {
+      hint.className = "small muted";
+      hint.textContent = split !== null || approved !== null
+        ? "Enter both My share % and Payout amount approved to calculate this, or type it here."
+        : "";
+    }
+  }
+  f.addEventListener("input", update);
+  update();
+})();
+</script>
+{% endblock %}
