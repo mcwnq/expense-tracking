@@ -491,3 +491,16 @@ def test_payout_edit_delete_and_fx_method(tmp_path):
     assert "200.00</strong> USD" in page and "280.00" in page  # re-converted at the annual rate
     client.post("/payouts/1/delete", data={"year": 2026})
     assert "No payouts received in 2026 yet." in client.get("/payouts?year=2026").text
+
+
+def test_summary_lists_payouts_by_prop_firm(tmp_path):
+    client = _payout_client(tmp_path)
+    for firm, cur, amount, on in [("Topstep", "USD", "100", "2026-10-15"), ("Topstep", "CAD", "50", "2026-03-18"),
+                                  ("Apex Trader Funding", "USD", "200", "2026-03-18"), ("Topstep", "USD", "999", "2025-06-02")]:
+        client.post("/payouts", data={"firm": firm, "currency": cur, "received_on": on, "received": amount})
+    page = client.get("/summary?year=2026").text
+    section = page.split('id="payouts"')[1]
+    rows = re.findall(r"<tr><td>([^<]+)</td><td class=\"num\">(\d+)</td>.*?<strong>([^<]+)</strong>", section)
+    # Apex: 200 x 1.3584 = 271.68; Topstep: 100 x 1.3612 + 50 CAD = 186.12
+    assert rows == [("Apex Trader Funding", "1", "271.68"), ("Topstep", "2", "186.12")]
+    assert "$457.80" in page  # KPI, 2025 payout left out
