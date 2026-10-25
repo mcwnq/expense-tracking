@@ -510,3 +510,47 @@ def test_summary_shows_payouts_by_firm_and_month(tmp_path):
     assert row(all_cad, "Apex Trader Funding") == ["1", "—", "—", "271.68"] + ["—"] * 9 + ["271.68"]
     assert row(all_cad, "Topstep") == ["2", "—", "—", "50.00"] + ["—"] * 6 + ["136.12", "—", "—", "186.12"]
     assert "All payouts in CAD · $457.80 CAD" in all_cad and "$457.80" in page.split("kpis")[1]  # 2025 left out
+
+
+def test_duplicate_vendor_and_assign_by_hand(tmp_path):
+    from app import db
+    path = tmp_path / "t.db"
+    client = TestClient(create_app(path, fetcher=None))
+    conn = db.connect(path)
+    client.post("/accounts", data={"name": "Visa", "currency": "CAD"})
+    client.post("/import/confirm", data={
+        "account_id": 1, "date_col": "Date", "description_col": "Description", "amount_col": "Amount",
+        "charges_positive": 1, "has_header": 1, "format_name": "Visa", "filename": "a.csv",
+        "csv_text": "Date,Description,Amount\n2026-01-05,TRADINGVIEW,30\n2026-02-05,TRADINGVIEW,30\n2026-03-09,TRADINGVIEW,599\n"})
+    tv = conn.execute("SELECT id FROM vendors WHERE name = 'TradingView'").fetchone()[0]
+    conn.execute("UPDATE vendors SET recurrence = 'recurring' WHERE id = ?", (tv,))
+    conn.commit()
+
+    client.post(f"/vendors/{tv}/duplicate")
+    copy = conn.execute("SELECT * FROM vendors WHERE name = 'TradingView - Copy'").fetchone()
+    assert copy["category"] == "Software" and copy["recurrence"] == "recurring"
+    assert not conn.execute("SELECT 1 FROM vendor_rules WHERE vendor_id = ?", (copy["id"],)).fetchone()
+    client.post(f"/vendors/{tv}/duplicate")
+    assert conn.execute("SELECT 1 FROM vendors WHERE name = 'TradingView - Copy 2'").fetchone()
+
+    # rename and make it one-time; a name already in use is refused
+    page = client.post(f"/vendors/{copy['id']}", data={"name": "TradingView", "category": "Software", "recurrence": "one-time"}).text
+    assert "There is already a vendor named TradingView." in page
+    client.post(f"/vendors/{copy['id']}", data={"name": "TradingView (one-time)", "category": "Software", "recurrence": "one-time"})
+
+    client.post("/transactions/assign", data={"ids": "3", "vendor_id": str(copy["id"])})
+    client.post("/rules", data={"pattern": "TRADINGVIEW", "vendor_id": tv})  # re-applying rules keeps the manual pick
+    vendor_of = lambda: [r[0] for r in conn.execute("SELECT vendor_id FROM transactions ORDER BY id")]
+    assert vendor_of() == [tv, tv, copy["id"]]
+    assert "set by hand" in client.get("/transactions").text
+
+    page = client.get("/summary?year=2026").text
+    assert "TradingView (one-time)" in page and "599.00" in page
+
+    client.post("/transactions/assign", data={"ids": "3", "vendor_id": "rule"})
+    assert vendor_of() == [tv, tv, tv]
+
+    # deleting a vendor sends its hand-picked lines back to the rules
+    client.post("/transactions/assign", data={"ids": "1,2", "vendor_id": str(copy["id"])})
+    client.post(f"/vendors/{copy['id']}/delete")
+    assert vendor_of() == [tv, tv, tv]

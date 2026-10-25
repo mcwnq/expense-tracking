@@ -53,6 +53,8 @@
       <input type="hidden" name="back" value="{{ here }}">
       <button class="secondary">{{ label }} all {{ rows|length }} shown</button></form>
     {% endfor %}
+    <button type="button" class="secondary" data-ids="{{ all_ids }}" data-what="all {{ rows|length }} transactions shown"
+      onclick="pickVendor(this)">Move all {{ rows|length }} shown to vendor…</button>
   </div>
   {% endif %}
 </div>
@@ -90,7 +92,10 @@
     </form></td>
     <td>{{ t.account }}</td><td>{{ t.description }}{% if t.batch_id is none %} <span class="chip auto" title="Added by hand">manual</span>
       <form class="inline" method="post" action="/transactions/{{ t.id }}/delete" onsubmit="return confirm('Delete this transaction you added?')">
-        <input type="hidden" name="back" value="{{ here }}"><button class="link">Delete</button></form>{% endif %}</td><td>{{ t.vendor or "" }}</td>
+        <input type="hidden" name="back" value="{{ here }}"><button class="link">Delete</button></form>{% endif %}</td>
+    <td class="nowrap">{{ t.vendor or "" }}{% if t.vendor_manual %} <span class="chip auto" title="Picked by hand; rules leave it alone">set by hand</span>{% endif %}
+      <button type="button" class="link" style="color:var(--accent)" data-ids="{{ t.id }}" data-what="{{ t.description }}"
+        onclick="pickVendor(this)" aria-label="Change vendor for {{ t.description }}" title="Change vendor">✎</button></td>
     <td class="num">{{ t.amount_cents|money }}</td><td>{{ t.currency }}</td>
     <td class="num">{{ t.fx_rate or "" }}</td>
     <td class="num {% if t.cad_cents is none %}warn{% endif %}">{{ t.cad_cents|money }}</td>
@@ -114,5 +119,27 @@
   {% endfor %}
 </table>
 {% endif %}
-<script>document.querySelectorAll("input[data-mixed]").forEach(c => c.indeterminate = true)</script>
+<dialog id="vendor-dialog">
+  <form method="post" action="/transactions/assign">
+    <h3 style="margin-top:0">Change vendor</h3>
+    <p class="muted" id="vendor-what"></p>
+    <input type="hidden" name="ids"><input type="hidden" name="back" value="{{ here }}">
+    <label for="vendor-pick">Vendor</label>
+    <select id="vendor-pick" name="vendor_id">
+      <option value="rule">Back to rule (whichever vendor's rule matches)</option>
+      {% for v in all_vendors %}<option value="{{ v.id }}">{{ v.name }}</option>{% endfor %}
+    </select>
+    <p class="muted">A vendor picked here stays, even when rules change. To split a vendor's charges, first make a copy with Duplicate on the <a href="/vendors">Vendors</a> page.</p>
+    <button>Save</button> <button type="button" class="secondary" onclick="this.closest('dialog').close()">Cancel</button>
+  </form>
+</dialog>
+<script>
+document.querySelectorAll("input[data-mixed]").forEach(c => c.indeterminate = true);
+function pickVendor(btn) {
+  const d = document.getElementById("vendor-dialog");
+  d.querySelector("[name=ids]").value = btn.dataset.ids;
+  document.getElementById("vendor-what").textContent = btn.dataset.what;
+  d.showModal();
+}
+</script>
 {% endblock %}
