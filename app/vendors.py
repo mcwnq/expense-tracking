@@ -117,14 +117,15 @@ def rule_matches(pattern: str, desc: str) -> bool:
 
 
 def apply_rules(conn: sqlite3.Connection) -> None:
-    """Re-assign every transaction's vendor from the current rules."""
+    """Re-assign every transaction's vendor from the current rules, except ones
+    whose vendor was picked by hand."""
     rules = [
         (r["pattern"], r["vendor_id"])
         for r in conn.execute("SELECT pattern, vendor_id FROM vendor_rules ORDER BY length(pattern) DESC, pattern")
     ]
     updates = [
         (match_vendor(rules, t["description"]), t["id"])
-        for t in conn.execute("SELECT id, description FROM transactions")
+        for t in conn.execute("SELECT id, description FROM transactions WHERE NOT vendor_manual")
     ]
     conn.executemany("UPDATE transactions SET vendor_id = ? WHERE id = ?", updates)
     conn.commit()
@@ -163,6 +164,41 @@ def add_rule(conn: sqlite3.Connection, pattern: str, vendor_id: int) -> None:
         "ON CONFLICT(pattern) DO UPDATE SET vendor_id = excluded.vendor_id",
         (pattern.strip().upper(), vendor_id),
     )
+    apply_rules(conn)
+
+
+def assign_vendor(conn: sqlite3.Connection, ids: list[int], vendor_id: int | None) -> None:
+    """Pick the vendor for these lines by hand, so rules leave them alone. None puts
+    them back under the rules."""
+    marks = ",".join("?" * len(ids))
+    if vendor_id is None:
+        conn.execute(f"UPDATE transactions SET vendor_manual = 0 WHERE id IN ({marks})", ids)
+        apply_rules(conn)
+    else:
+        conn.execute(f"UPDATE transactions SET vendor_id = ?, vendor_manual = 1 WHERE id IN ({marks})", [vendor_id, *ids])
+        conn.commit()
+
+
+def duplicate_vendor(conn: sqlite3.Connection, vendor_id: int) -> int:
+    """A copy named "<name> - Copy" with the same category and type and no rules,
+    for charges from one vendor that belong on different T2125 lines."""
+    v = conn.execute("SELECT * FROM vendors WHERE id = ?", (vendor_id,)).fetchone()
+    taken = {r[0] for r in conn.execute("SELECT name FROM vendors")}
+    name = f"{v['name']} - Copy"
+    n = 2
+    while name in taken:
+        name, n = f"{v['name']} - Copy {n}", n + 1
+    cur = conn.execute(
+        "INSERT INTO vendors (name, category, recurrence) VALUES (?, ?, ?)", (name, v["category"], v["recurrence"])
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def delete_vendor(conn: sqlite3.Connection, vendor_id: int) -> None:
+    """Delete a vendor; its lines go back to the rules (unassigned if none match)."""
+    conn.execute("UPDATE transactions SET vendor_manual = 0 WHERE vendor_id = ?", (vendor_id,))
+    conn.execute("DELETE FROM vendors WHERE id = ?", (vendor_id,))
     apply_rules(conn)
 
 
