@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import db, fx, importer, vendors
+from . import db, fx, importer, payouts, vendors
 
 HERE = Path(__file__).parent
 
@@ -511,6 +511,58 @@ def create_app(
     def refresh_fx():
         fx.fill_missing_cad(conn, fetcher)
         return RedirectResponse("/", status_code=303)
+
+    def _payouts_page(request, year: int | None, form=None, editing: int | None = None):
+        known = payouts.years(conn)
+        year = year or (known[0] if known else date.today().year)
+        rows = payouts.for_year(conn, year)
+        if any(r["cad_cents"] is None for r in rows):
+            fx.fill_missing_cad(conn, fetcher)
+            rows = payouts.for_year(conn, year)
+        firms = payouts.firms(conn)
+        form = form or payouts.PayoutForm()
+        if form.firm and form.firm not in firms:
+            firms = sorted(firms + [form.firm])  # a firm whose vendor was renamed or recategorized
+        return render(
+            request, "payouts.html", year=year, years=sorted(set(known) | {year, date.today().year}, reverse=True),
+            rows=rows, totals=payouts.totals(rows), firms=firms, paid_via=payouts.PAID_VIA, form=form,
+            editing=editing, firm_category=payouts.FIRM_CATEGORY,
+        )
+
+    @app.get("/payouts", response_class=HTMLResponse)
+    def payouts_page(request: Request, year: int | None = None, edit: int | None = None):
+        if edit:
+            row = conn.execute("SELECT * FROM payouts WHERE id = ?", (edit,)).fetchone()
+            if row:
+                return _payouts_page(request, int(row["received_on"][:4]), payouts.PayoutForm.from_row(row), edit)
+        return _payouts_page(request, year)
+
+    @app.post("/payouts", response_class=HTMLResponse)
+    def save_payout(
+        request: Request,
+        payout_id: int | None = Form(None),
+        firm: str = Form(""),
+        currency: str = Form("USD"),
+        paid_via: str = Form(""),
+        split_pct: str = Form(""),
+        approved: str = Form(""),
+        approved_on: str = Form(""),
+        fees: str = Form(""),
+        received_on: str = Form(""),
+        received: str = Form(""),
+        year: int | None = Form(None),
+    ):
+        form = payouts.PayoutForm(firm, currency, paid_via, split_pct, approved, approved_on, fees, received_on, received)
+        if payouts.save(conn, form, payout_id) is None:
+            return _payouts_page(request, year, form, payout_id)
+        fx.fill_missing_cad(conn, fetcher)
+        return RedirectResponse(f"/payouts?year={received_on[:4]}", status_code=303)
+
+    @app.post("/payouts/{payout_id}/delete")
+    def delete_payout(payout_id: int, year: int = Form(...)):
+        conn.execute("DELETE FROM payouts WHERE id = ?", (payout_id,))
+        conn.commit()
+        return RedirectResponse(f"/payouts?year={year}", status_code=303)
 
     @app.get("/imports", response_class=HTMLResponse)
     def imports(request: Request):

@@ -52,3 +52,9 @@ table.groups > tbody > tr > td { vertical-align:top; }
 table.lines td { white-space:nowrap; }
 td.nowrap { white-space:nowrap; }
 h3 { font-size:15px; margin:20px 0 8px; }
+fieldset { border:1px solid var(--line); margin:0; padding:10px 12px 12px; }
+legend { font-size:13px; font-weight:600; color:var(--muted); padding:0 4px; }
+.small { display:block; font-size:12px; margin-top:2px; }
+.grid input, .grid select { width:100%; }
+input.calculated { background:#eef3fa; font-weight:600; }
+.calc { color:var(--accent); }

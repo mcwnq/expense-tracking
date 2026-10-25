@@ -63,18 +63,19 @@ def set_year_method(
     conn: sqlite3.Connection, year: int, method: str, annual_rate: str | None, fetcher: Fetcher | None = fetch_boc
 ) -> int:
     """Switch a tax year between daily and annual-average conversion and re-convert
-    its USD transactions. Returns how many are still unconverted."""
+    its USD transactions and payouts. Returns how many are still unconverted."""
     rate = Decimal(annual_rate) if annual_rate else None
     conn.execute(
         "INSERT INTO tax_years (year, fx_method, annual_rate) VALUES (?, ?, ?) "
         "ON CONFLICT(year) DO UPDATE SET fx_method = excluded.fx_method, annual_rate = excluded.annual_rate",
         (year, method, str(rate) if rate else None),
     )
-    conn.execute(
-        "UPDATE transactions SET fx_rate = NULL, cad_cents = NULL "
-        "WHERE currency = 'USD' AND substr(tax_date, 1, 4) = ?",
-        (str(year),),
-    )
+    for table, date_col, _ in CONVERTED:
+        conn.execute(
+            f"UPDATE {table} SET fx_rate = NULL, cad_cents = NULL "
+            f"WHERE currency = 'USD' AND substr({date_col}, 1, 4) = ?",
+            (str(year),),
+        )
     conn.commit()
     return fill_missing_cad(conn, fetcher)
 
@@ -114,27 +115,35 @@ def convert_cents(cents: int, rate: Decimal) -> int:
     return int((Decimal(cents) * rate).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
+# Tables holding USD amounts to convert: (table, date column, amount column)
+CONVERTED = [("transactions", "tax_date", "amount_cents"), ("payouts", "received_on", "received_cents")]
+
+
 def fill_missing_cad(conn: sqlite3.Connection, fetcher: Fetcher | None = fetch_boc) -> int:
-    """Set cad_cents on any USD transactions that don't have it yet.
+    """Set cad_cents on any USD transactions and payouts that don't have it yet.
 
     If a fetcher is given, missing rates are downloaded first. Returns the
-    number of transactions still lacking a rate (e.g. when offline).
+    number still lacking a rate (e.g. when offline).
     """
-    rows = conn.execute(
-        "SELECT id, tax_date, amount_cents FROM transactions "
-        "WHERE currency = 'USD' AND cad_cents IS NULL"
-    ).fetchall()
+    rows = [
+        (table, r["id"], r["day"], r["cents"])
+        for table, date_col, amount_col in CONVERTED
+        for r in conn.execute(
+            f"SELECT id, {date_col} AS day, {amount_col} AS cents FROM {table} "
+            "WHERE currency = 'USD' AND cad_cents IS NULL"
+        )
+    ]
     if not rows:
         return 0
 
     annual: dict[int, Decimal | None] = {}
-    for r in rows:
-        year = int(r["tax_date"][:4])
+    for _, _, on, _ in rows:
+        year = int(on[:4])
         if year not in annual:
             method, rate = year_setting(conn, year)
             annual[year] = rate if method == "annual" else None
 
-    needs_daily = [date.fromisoformat(r["tax_date"]) for r in rows if annual[int(r["tax_date"][:4])] is None]
+    needs_daily = [date.fromisoformat(on) for _, _, on, _ in rows if annual[int(on[:4])] is None]
     if fetcher is not None and needs_daily:
         try:
             ensure_rates(conn, min(needs_daily), max(needs_daily), fetcher)
@@ -142,14 +151,14 @@ def fill_missing_cad(conn: sqlite3.Connection, fetcher: Fetcher | None = fetch_b
             pass  # offline; leave unconverted and report below
 
     missing = 0
-    for r in rows:
-        rate = annual[int(r["tax_date"][:4])] or _cached_rate(conn, date.fromisoformat(r["tax_date"]))
+    for table, row_id, on, cents in rows:
+        rate = annual[int(on[:4])] or _cached_rate(conn, date.fromisoformat(on))
         if rate is None:
             missing += 1
             continue
         conn.execute(
-            "UPDATE transactions SET fx_rate = ?, cad_cents = ? WHERE id = ?",
-            (str(rate), convert_cents(r["amount_cents"], rate), r["id"]),
+            f"UPDATE {table} SET fx_rate = ?, cad_cents = ? WHERE id = ?",
+            (str(rate), convert_cents(cents, rate), row_id),
         )
     conn.commit()
     return missing

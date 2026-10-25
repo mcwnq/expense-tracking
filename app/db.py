@@ -94,6 +94,23 @@ CREATE TABLE IF NOT EXISTS tax_years (
     annual_rate TEXT              -- Bank of Canada annual average USD->CAD, decimal string
 );
 
+-- Prop firm payouts (business income). The details are optional; when share and
+-- approved amount are both given, received = approved x share % - fees.
+CREATE TABLE IF NOT EXISTS payouts (
+    id             INTEGER PRIMARY KEY,
+    firm           TEXT NOT NULL,         -- a vendor in the Prop firm evaluations category
+    currency       TEXT NOT NULL CHECK (currency IN ('CAD', 'USD')),
+    paid_via       TEXT,
+    split_pct      TEXT,                  -- my share, decimal string, e.g. 90
+    approved_cents INTEGER,
+    approved_on    TEXT,
+    fees_cents     INTEGER,
+    received_on    TEXT NOT NULL,         -- ISO date; decides the tax year and FX rate
+    received_cents INTEGER NOT NULL,
+    fx_rate        TEXT,                  -- USD->CAD rate used; NULL for CAD
+    cad_cents      INTEGER                -- NULL until a rate is available
+);
+
 CREATE TABLE IF NOT EXISTS fx_rates (
     rate_date TEXT PRIMARY KEY,          -- ISO date of the Bank of Canada observation
     usd_cad   TEXT NOT NULL,             -- decimal string
