@@ -708,7 +708,26 @@ def create_app(
             t=both[biz], both=both, split_set=business.is_split_set(conn, year), classes=cca.CLASSES,
             vendor_businesses=business.VENDOR_BUSINESSES, form=form or cca.AssetForm(available_on=f"{year}-01-01"),
             editing=editing_row, error=error, capital_categories=cca.CAPITAL_CATEGORIES,
+            charges=_movable_charges(year), default_class=cca.default_class,
+            moved={r[0] for r in conn.execute("SELECT id FROM transactions WHERE capital_cls IS NOT NULL")},
         )
+
+    def _movable_charges(year: int) -> dict[int, list]:
+        """Each vendor's charges in the year that are still expenses, to move to CCA."""
+        charges: dict[int, list] = {}
+        for r in conn.execute(
+            "SELECT t.id, t.tax_date, t.description, t.cad_cents, t.vendor_id, v.category FROM transactions t "
+            "JOIN vendors v ON v.id = t.vendor_id WHERE substr(t.tax_date, 1, 4) = ? AND NOT t.excluded "
+            "AND t.amount_cents > 0 AND t.capital_cls IS NULL ORDER BY t.tax_date",
+            (str(year),),
+        ):
+            charges.setdefault(r["vendor_id"], []).append(r)
+        return charges
+
+    @app.post("/transactions/{txn_id}/capital")
+    def move_to_cca(txn_id: int, cls: str = Form(""), year: int = Form(...), biz: str = Form("", alias="business")):
+        cca.move_charge(conn, txn_id, cls or None)
+        return RedirectResponse(_t2125_url(year, biz, "#assets" if cls else "#expenses"), status_code=303)
 
     def _t2125_url(year, biz: str, anchor: str = "", **extra) -> str:
         return f"/t2125?{urlencode({'year': year, 'business': biz, **extra})}{anchor}"

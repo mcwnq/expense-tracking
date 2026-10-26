@@ -45,14 +45,15 @@ def _round(d: Decimal) -> int:
 
 
 def sync_assets(conn: sqlite3.Connection) -> None:
-    """Keep one asset per included capital charge: add new ones, drop ones whose
-    charge was excluded, deleted or moved to a non-capital vendor, and refresh
-    cost and date. The class, business, business-use % and name you set stay."""
+    """Keep one asset per included capital charge (its vendor's category is capital,
+    or the charge was moved to CCA by itself): add new ones, drop ones whose charge
+    was excluded, deleted or moved back, and refresh cost and date. The class,
+    business, business-use % and name you set stay."""
     cats = list(CAPITAL_CATEGORIES)
     rows = conn.execute(
-        "SELECT t.id, t.tax_date, t.cad_cents, v.name, v.category, v.business FROM transactions t "
+        "SELECT t.id, t.tax_date, t.cad_cents, t.capital_cls, v.name, v.category, v.business FROM transactions t "
         f"JOIN vendors v ON v.id = t.vendor_id WHERE NOT t.excluded AND t.amount_cents > 0 "
-        f"AND t.cad_cents IS NOT NULL AND v.category IN ({', '.join('?' * len(cats))})",
+        f"AND t.cad_cents IS NOT NULL AND (t.capital_cls IS NOT NULL OR v.category IN ({', '.join('?' * len(cats))}))",
         cats,
     ).fetchall()
     keep = {r["id"] for r in rows}
@@ -63,9 +64,28 @@ def sync_assets(conn: sqlite3.Connection) -> None:
         conn.execute(
             "INSERT INTO assets (txn_id, name, available_on, cost_cents, cls, business) VALUES (?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(txn_id) DO UPDATE SET available_on = excluded.available_on, cost_cents = excluded.cost_cents",
-            (r["id"], r["name"], r["tax_date"], r["cad_cents"], CAPITAL_CATEGORIES[r["category"]], r["business"]),
+            (r["id"], r["name"], r["tax_date"], r["cad_cents"], r["capital_cls"] or CAPITAL_CATEGORIES[r["category"]],
+             r["business"]),
         )
     conn.commit()
+
+
+def move_charge(conn: sqlite3.Connection, txn_id: int, cls: str | None) -> None:
+    """Move one charge from expenses to CCA in a class, or back (cls None)."""
+    if cls is not None and cls not in CLASSES:
+        return
+    conn.execute("UPDATE transactions SET capital_cls = ? WHERE id = ?", (cls, txn_id))
+    if cls is None:
+        conn.execute("DELETE FROM assets WHERE txn_id = ?", (txn_id,))
+    else:
+        conn.execute("UPDATE assets SET cls = ? WHERE txn_id = ?", (cls, txn_id))
+    conn.commit()
+    sync_assets(conn)
+
+
+def default_class(category: str) -> str:
+    """The class a charge moved to CCA starts in: software is class 12, the rest class 50."""
+    return "12" if category.startswith("Software") else "50"
 
 
 @dataclass

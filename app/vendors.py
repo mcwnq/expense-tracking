@@ -312,12 +312,14 @@ def summary(
     only: str | None = None,
     currency: str = "CAD",
     charged_in: str | None = None,
+    expenses_only: bool = False,
 ) -> Summary:
     """Business expenses for a year in cents, grouped by category then vendor.
 
     Amounts are in `currency` (CAD or USD), converting at the Bank of Canada rate
     the year uses. With `charged_in`, only lines charged in that currency are
-    counted, in their own currency. Refunds net against the vendor's charges in
+    counted, in their own currency. With `expenses_only`, charges moved to CCA by
+    themselves are left out. Refunds net against the vendor's charges in
     the month they post. Prepaid charges are spread over their service period,
     so part of a charge can fall in another year. Excluded categories and
     unassigned transactions are left out (see unassigned()).
@@ -331,6 +333,8 @@ def summary(
         "WHERE t.tax_date <= ? AND (substr(t.tax_date, 1, 4) = ? OR t.service_months IS NOT NULL) "
         "AND NOT t.excluded"
     )
+    if expenses_only:
+        sql += " AND t.capital_cls IS NULL"  # charges moved to CCA are claimed as assets
     args: list = [f"{year}-12-31", str(year)]
     if charged_in:
         sql += " AND t.currency = ?"

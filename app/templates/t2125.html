@@ -38,14 +38,31 @@
   <tfoot><tr><th>8299</th><td>Gross business income</td><td class="num">{{ t.gross|money }}</td></tr></tfoot>
 </table>
 
-<h2>Part 4 · Expenses</h2>
+<h2 id="expenses">Part 4 · Expenses</h2>
+<p class="muted">A one-time purchase you'll use for years, like a lifetime software licence, belongs in CCA instead. Open <strong>Move to CCA</strong> under its vendor to move just that charge.</p>
 {% if t.lines %}
 <table>
   <tr><th style="width:110px">Line</th><th>Vendor</th><th>Business</th><th class="num">CAD</th></tr>
   {% for line in t.lines %}
   <tr class="group"><th>{{ line.code }}</th><td colspan="2">{{ line.name }}{% if line.code == "9936" %} <a class="small" href="#cca" style="display:inline">from Area A below</a>{% endif %}</td><td class="num">{{ line.total|money }}</td></tr>
   {% for it in line.items %}
-  <tr><td></td><td>{{ it.vendor }}</td><td class="muted">{{ it.business }}</td><td class="num">{{ it.cents|money }}</td></tr>
+  <tr><td></td>
+    <td>{{ it.vendor }}
+      {% if it.vendor_id and charges.get(it.vendor_id) %}
+      <details class="move-cca"><summary>Move to CCA</summary>
+        <table class="lines">
+          {% for c in charges[it.vendor_id] %}
+          <tr><td>{{ c.tax_date }}</td><td>{{ c.description }}</td><td class="num">{{ c.cad_cents|money }}</td>
+            <td><form class="inline" method="post" action="/transactions/{{ c.id }}/capital">
+              <input type="hidden" name="year" value="{{ year }}"><input type="hidden" name="business" value="{{ business }}">
+              <select name="cls" aria-label="CCA class for the {{ c.tax_date }} charge">{% for k, (n, rate) in classes.items() %}<option value="{{ k }}" {% if k == default_class(c.category) %}selected{% endif %}>Class {{ k }} · {{ n }}</option>{% endfor %}</select>
+              <button class="secondary">Move</button></form></td></tr>
+          {% endfor %}
+        </table>
+      </details>
+      {% endif %}
+    </td>
+    <td class="muted">{{ it.business }}</td><td class="num">{{ it.cents|money }}</td></tr>
   {% endfor %}
   {% endfor %}
   <tfoot><tr><th>9368</th><td colspan="2">Total expenses</td><td class="num">{{ t.expenses|money }}</td></tr></tfoot>
@@ -53,7 +70,7 @@
 {% else %}<p class="muted">No {{ business }} or Shared expenses in {{ year }}.</p>{% endif %}
 
 <h2 id="cca">Area A · Capital cost allowance</h2>
-<p class="muted">Equipment and software you'll use for years are claimed a part each year. Charges whose vendor category is {{ capital_categories|join(" or ") }} become assets below instead of expenses. {{ business }} gets its own assets in full and its share of Shared ones. Balances carry over from year to year.</p>
+<p class="muted">Equipment and software you'll use for years are claimed a part each year. Charges whose vendor category is {{ capital_categories|join(" or ") }}, and charges you move here from Part 4, become assets below instead of expenses. {{ business }} gets its own assets in full and its share of Shared ones. Balances carry over from year to year.</p>
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 {% if t.cca.rows %}
 <div class="scroll">
@@ -101,6 +118,9 @@
     <td class="num">{{ a.use_pct }}%</td><td class="num">{{ a.cost_cents|money }}</td><td class="num">{{ s.cents|money }}</td>
     <td class="nowrap">{% if a.disposed_on %}{{ a.disposed_on }} for {{ a.proceeds_cents|money }}{% else %}—{% endif %}</td>
     <td class="nowrap"><a href="{{ '/t2125?' ~ ({'year': year, 'business': business, 'edit': a.id}|urlencode) }}#asset-form">Edit</a>
+      {% if a.txn_id and a.txn_id in moved %}<form class="inline" method="post" action="/transactions/{{ a.txn_id }}/capital">
+        <input type="hidden" name="cls" value=""><input type="hidden" name="year" value="{{ year }}"><input type="hidden" name="business" value="{{ business }}">
+        <button class="link">Back to expenses</button></form>{% endif %}
       {% if not a.txn_id %}<form class="inline" method="post" action="/assets/{{ a.id }}/delete"
         onsubmit="return confirm({{ ('Delete ' ~ a.name ~ '?')|tojson|forceescape }})">
         <input type="hidden" name="year" value="{{ year }}"><input type="hidden" name="business" value="{{ business }}">

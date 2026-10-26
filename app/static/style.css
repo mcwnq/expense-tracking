@@ -72,3 +72,5 @@ output.calculated { display:inline-block; min-width:80px; padding:6px 10px; bord
 .kpis > div { background:#fff; border:1px solid var(--line); padding:12px 16px; }
 .kpis > div.dark { background:var(--fg); color:#fff; }
 .kpis .big { font-size:24px; font-variant-numeric:tabular-nums; }
+details.move-cca summary { color:var(--accent); font-size:12px; }
+details.move-cca table.lines td { white-space:normal; }
