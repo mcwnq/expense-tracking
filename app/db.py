@@ -157,6 +157,7 @@ CREATE TABLE IF NOT EXISTS cca_claims (
     business    TEXT NOT NULL,
     cls         TEXT NOT NULL,
     claim_cents INTEGER NOT NULL,
+    claim_rate  TEXT,  -- a % of the base; when set it wins over claim_cents
     PRIMARY KEY (year, business, cls)
 );
 
@@ -281,4 +282,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         if "capital_cls" not in [c["name"] for c in conn.execute("PRAGMA table_info(transactions)")]:
             conn.execute("ALTER TABLE transactions ADD COLUMN capital_cls TEXT")
         conn.execute("PRAGMA user_version = 14")
+    if version < 15:
+        # A claim typed as a rate (% of the base) instead of an amount
+        if "claim_rate" not in [c["name"] for c in conn.execute("PRAGMA table_info(cca_claims)")]:
+            conn.execute("ALTER TABLE cca_claims ADD COLUMN claim_rate TEXT")
+        conn.execute("PRAGMA user_version = 15")
     conn.commit()

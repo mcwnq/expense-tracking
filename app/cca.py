@@ -161,19 +161,34 @@ def save_asset(conn: sqlite3.Connection, f: AssetForm, asset_id: int | None = No
     return asset_id
 
 
-def set_claim(conn: sqlite3.Connection, year: int, biz: str, cls: str, text: str) -> str | None:
-    """Claim less than the most allowed for a class (empty = the most). Returns an error, or None."""
-    if not text.strip():
+def set_claim(conn: sqlite3.Connection, year: int, biz: str, cls: str, text: str, rate_text: str = "") -> str | None:
+    """Claim less than the most allowed for a class, as an amount or as a rate (% of the base).
+
+    A rate wins over an amount; both empty claims the most. Returns an error, or None.
+    """
+    if rate_text.strip():
+        try:
+            pct = Decimal(rate_text.strip().rstrip("%"))
+        except InvalidOperation:
+            pct = None
+        top = CLASSES[cls][1] * 100 if cls in CLASSES else Decimal(100)
+        if pct is None or not 0 <= pct <= top:
+            return f"The rate for class {cls} must be a number from 0 to {top.normalize():f}."
+        claim_cents, claim_rate = 0, f"{pct.normalize():f}"
+    elif text.strip():
+        value = parse_amount(text)
+        if value is None or value < 0:
+            return "The claim isn't a valid amount."
+        claim_cents, claim_rate = to_cents(value), None
+    else:
         conn.execute("DELETE FROM cca_claims WHERE year = ? AND business = ? AND cls = ?", (year, biz, cls))
         conn.commit()
         return None
-    value = parse_amount(text)
-    if value is None or value < 0:
-        return "The claim isn't a valid amount."
     conn.execute(
-        "INSERT INTO cca_claims (year, business, cls, claim_cents) VALUES (?, ?, ?, ?) "
-        "ON CONFLICT(year, business, cls) DO UPDATE SET claim_cents = excluded.claim_cents",
-        (year, biz, cls, to_cents(value)),
+        "INSERT INTO cca_claims (year, business, cls, claim_cents, claim_rate) VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(year, business, cls) DO UPDATE SET claim_cents = excluded.claim_cents, "
+        "claim_rate = excluded.claim_rate",
+        (year, biz, cls, claim_cents, claim_rate),
     )
     conn.commit()
     return None
@@ -223,6 +238,7 @@ class ClassRow:
     recapture: int = 0
     terminal_loss: int = 0
     claim_set: bool = False
+    claim_rate: Decimal | None = None  # the % typed for this year, if any
 
     @property
     def after(self) -> int:  # column 7
@@ -262,7 +278,7 @@ class Schedule:
 def schedule(conn: sqlite3.Connection, year: int, biz: str) -> Schedule:
     shares = asset_shares(conn, biz)
     claims = {
-        (r["year"], r["cls"]): r["claim_cents"]
+        (r["year"], r["cls"]): (r["claim_cents"], r["claim_rate"])
         for r in conn.execute("SELECT * FROM cca_claims WHERE business = ?", (biz,))
     }
     first = min([int(s.asset["available_on"][:4]) for s in shares] + [year])
@@ -296,7 +312,11 @@ def schedule(conn: sqlite3.Connection, year: int, biz: str) -> Schedule:
             else:
                 row.most = min(_round(Decimal(row.base) * rate), row.after)
                 row.claim_set = (y, cls) in claims
-                row.claim = min(claims.get((y, cls), row.most), row.most)
+                cents, pct = claims.get((y, cls), (row.most, None))
+                if pct is not None:
+                    row.claim_rate = Decimal(pct)
+                    cents = _round(Decimal(row.base) * row.claim_rate / 100)
+                row.claim = min(cents, row.most)
             closing[cls] = row.closing
             if row.opening or row.additions or row.proceeds:
                 rows[cls] = row

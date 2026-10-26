@@ -76,8 +76,8 @@
 <div class="scroll">
 <table>
   <tr><th>Class</th><th class="num">Opening UCC</th><th class="num">Additions</th><th class="num">Sold</th>
-    <th class="num">First-year boost</th><th class="num">Base</th><th class="num">Rate</th><th class="num">Most you can claim</th>
-    <th class="num">Claim</th><th class="num">Closing UCC</th></tr>
+    <th class="num">First-year boost</th><th class="num">Base</th><th class="num">Max rate</th><th class="num">Most you can claim</th>
+    <th class="num">Your rate and claim</th><th class="num">Closing UCC</th></tr>
   {% for r in t.cca.rows %}
   <tr>
     <th>{{ r.cls }} · {{ r.name }}</th>
@@ -88,12 +88,14 @@
       {% if r.recapture %}<span class="warn">Recapture {{ r.recapture|money }} (line 8230)</span>
       {% elif r.terminal_loss %}<span class="warn">Terminal loss {{ r.terminal_loss|money }} (line 9270)</span>
       {% else %}
-      <form class="inline" method="post" action="/cca/claim">
+      <form class="inline claim" method="post" action="/cca/claim" data-base="{{ r.base }}" data-most="{{ r.most }}">
         <input type="hidden" name="year" value="{{ year }}"><input type="hidden" name="business" value="{{ business }}">
         <input type="hidden" name="cls" value="{{ r.cls }}">
+        <input name="claim_rate" inputmode="decimal" size="4" value="{{ r.claim_rate|string if r.claim_rate is not none else '' }}"
+          placeholder="{{ (r.rate * 100)|round|int }}" aria-label="Rate to claim for class {{ r.cls }}, in %" style="text-align:right">%
         <input name="claim" inputmode="decimal" size="9" value="{{ '%.2f'|format(r.claim / 100) }}" aria-label="CCA to claim for class {{ r.cls }}" style="text-align:right">
         <button class="secondary">Save</button>
-      </form>{% if r.claim_set %}<span class="small muted">Less than the most. Clear it to claim the most.</span>{% endif %}
+      </form>{% if r.claim_set %}<span class="small muted">{% if r.claim_rate is not none %}{{ r.claim_rate }}% of the base.{% else %}Less than the most.{% endif %} Clear both to claim the most.</span>{% endif %}
       {% endif %}
     </td>
     <td class="num">{{ r.closing|money }}</td>
@@ -161,4 +163,16 @@
 </div>
 
 <p class="muted">The first-year boost follows Area A of the 2025 T2125: assets bought after 2024 skip the half-year rule, computers (class 50) get an extra 9/11 so they're written off in full, and other classes except 12 get an extra half. You can claim less than the most and keep more for later years. These are suggestions to make filing easier, not tax advice. Review them with your accountant before you file.</p>
+<script>
+// Typing a rate fills in the claim (rate × base, at most the most); typing a claim clears the rate.
+document.querySelectorAll("form.claim").forEach(f => {
+  const base = Number(f.dataset.base), most = Number(f.dataset.most);
+  f.claim_rate.addEventListener("input", () => {
+    const pct = Number(f.claim_rate.value.replace(/[%\s]/g, ""));
+    if (f.claim_rate.value.trim() !== "" && !isNaN(pct))
+      f.claim.value = (Math.min(Math.round(base * pct / 100), most) / 100).toFixed(2);
+  });
+  f.claim.addEventListener("input", () => { f.claim_rate.value = ""; });
+});
+</script>
 {% endblock %}
