@@ -760,8 +760,9 @@ def create_app(
         return RedirectResponse(_t2125_url(year, biz, "#assets"), status_code=303)
 
     @app.post("/cca/claim")
-    def save_claim(year: int = Form(...), biz: str = Form("", alias="business"), cls: str = Form(...), claim: str = Form("")):
-        error = cca.set_claim(conn, year, _business_arg(biz), cls, claim)
+    def save_claim(year: int = Form(...), biz: str = Form("", alias="business"), cls: str = Form(...), claim: str = Form(""),
+                   claim_rate: str = Form("")):
+        error = cca.set_claim(conn, year, _business_arg(biz), cls, claim, claim_rate)
         return RedirectResponse(_t2125_url(year, biz, "#cca", **({"error": error} if error else {})), status_code=303)
 
     @app.get("/imports", response_class=HTMLResponse)

@@ -690,6 +690,16 @@ def test_cca_on_t2125(tmp_path):
     r = client.get("/t2125", params={"year": 2027, "business": "Futures"})
     assert "1,040.00" in r.text  # class 12 opening UCC in 2027
 
+    # claim a rate instead: 20% of class 50's 3,447.27 base, and no more than the class's 55%
+    client.post("/cca/claim", data={"year": 2026, "business": "Futures", "cls": "50", "claim_rate": "20%"})
+    r = client.get("/t2125", params={"year": 2026, "business": "Futures"})
+    assert "689.45" in r.text and "20% of the base" in r.text and 'name="claim_rate" inputmode="decimal" size="4" value="20"' in r.text
+    r = client.post("/cca/claim", data={"year": 2026, "business": "Futures", "cls": "50", "claim_rate": "60"})
+    assert "must be a number from 0 to 55" in r.text
+    client.post("/cca/claim", data={"year": 2026, "business": "Futures", "cls": "50", "claim_rate": "", "claim": ""})
+    r = client.get("/t2125", params={"year": 2026, "business": "Futures"})
+    assert "689.45" not in r.text and "2,971.60" in r.text
+
     # selling the laptop for more than the class's balance is recapture on line 8230
     laptop = conn.execute("SELECT id FROM assets WHERE name = 'Best Buy' ORDER BY cost_cents DESC").fetchone()[0]
     client.post("/assets", data={"asset_id": laptop, "name": "Laptop", "cls": "50", "asset_business": "Shared",
