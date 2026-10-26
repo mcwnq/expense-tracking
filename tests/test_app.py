@@ -646,3 +646,59 @@ def test_two_businesses_t5008_and_t2125(tmp_path):
     assert re.findall(r'class="big">([^<]*)<', r.text) == ["592.75", "102.00", "490.75"]
     assert "Shared · 40% of 80.00" in r.text and "Prop firm payouts count as Futures" in r.text
     assert "Total self-employment income <strong>1,097.75" in r.text
+
+
+def test_cca_on_t2125(tmp_path):
+    from app import db
+
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=lambda s, e: {}))
+    client.post("/accounts", data={"name": "Visa", "currency": "CAD"})
+    client.post("/vendors", data={"name": "Best Buy", "category": "Computer equipment", "pattern": "BEST BUY"})
+    client.post("/vendors", data={"name": "NinjaTrader licence", "category": "Software (capital)", "pattern": "NINJA LIFETIME"})
+    conn = db.connect(tmp_path / "t.db")
+    nt = conn.execute("SELECT id FROM vendors WHERE name = 'NinjaTrader licence'").fetchone()[0]
+    client.post(f"/vendors/{nt}", data={"category": "Software (capital)", "business": "Futures", "name": "NinjaTrader licence"})
+    base = {"filename": "a.csv", "date_col": "Date", "description_col": "Description", "amount_col": "Amount",
+            "charges_positive": 1, "has_header": 1, "format_name": "x", "account_id": 1}
+    csv = ("Date,Description,Amount\n2026-02-10,NINJA LIFETIME,2040.00\n2026-03-14,BEST BUY LAPTOP,2400.00\n"
+           "2026-05-02,BEST BUY MONITORS,760.00\n")
+    client.post("/import/confirm", data={**base, "csv_text": csv})
+    for y in (2025, 2026):
+        client.post("/business-split", data={"year": y, "futures_pct": "60"})
+    # an asset from before the app, added by hand
+    r = client.post("/assets", data={"name": "Desk and chair", "available_on": "2025-11-20", "cost": "900",
+                                     "cls": "8", "asset_business": "Shared", "use_pct": "100", "year": 2026,
+                                     "business": "Futures"})
+    assert r.status_code == 200
+
+    def kpis(text):
+        return re.findall(r'class="big">([^<]*)<', text)
+
+    r = client.get("/t2125", params={"year": 2026, "business": "Futures"})
+    # class 50 written off in full (9/11 boost), class 12 at 100%, class 8 from its 2025 balance
+    assert "1,551.27" in r.text and "3,447.27" in r.text  # boost and base for class 50
+    assert "4,011.60" in r.text and "302.40" in r.text
+    assert kpis(r.text) == ["0.00", "4,011.60", "-4,011.60"]
+    assert "Best Buy" not in re.search(r"Part 4 · Expenses(.*?)Area A", r.text, re.S).group(1)  # not an expense
+    r = client.get("/t2125", params={"year": 2026, "business": "Options & Stocks"})
+    assert "1,314.40" in r.text and "1,034.18" in r.text and "NinjaTrader" not in r.text
+
+    # claim less than the most, then the rest carries to next year
+    client.post("/cca/claim", data={"year": 2026, "business": "Futures", "cls": "12", "claim": "1000"})
+    r = client.get("/t2125", params={"year": 2026, "business": "Futures"})
+    assert "2,971.60" in r.text and "Less than the most" in r.text
+    r = client.get("/t2125", params={"year": 2027, "business": "Futures"})
+    assert "1,040.00" in r.text  # class 12 opening UCC in 2027
+
+    # selling the laptop for more than the class's balance is recapture on line 8230
+    laptop = conn.execute("SELECT id FROM assets WHERE name = 'Best Buy' ORDER BY cost_cents DESC").fetchone()[0]
+    client.post("/assets", data={"asset_id": laptop, "name": "Laptop", "cls": "50", "asset_business": "Shared",
+                                 "use_pct": "100", "disposed_on": "2027-06-01", "proceeds": "1000", "year": 2027,
+                                 "business": "Futures"})
+    r = client.get("/t2125", params={"year": 2027, "business": "Futures"})
+    assert "Recapture 600.00 (line 8230)" in r.text and "plus CCA recapture 600.00" in r.text
+
+    # excluding the charge removes its asset
+    client.post("/transactions/set-included", data={"ids": "3", "included": 0})
+    r = client.get("/t2125", params={"year": 2026, "business": "Options & Stocks"})
+    assert "760.00" not in r.text

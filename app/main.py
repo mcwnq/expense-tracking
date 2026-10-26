@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import business, db, fx, importer, payouts, vendors
+from . import business, cca, db, fx, importer, payouts, vendors
 
 HERE = Path(__file__).parent
 
@@ -681,16 +681,69 @@ def create_app(
         return RedirectResponse(f"/t5008?{urlencode({'year': year, 'business': biz})}", status_code=303)
 
     @app.get("/t2125", response_class=HTMLResponse)
-    def t2125_page(request: Request, year: int | None = None, biz: str = Query("", alias="business")):
+    def t2125_page(
+        request: Request, year: int | None = None, biz: str = Query("", alias="business"), edit: int | None = None,
+        error: str = "",
+    ):
+        return _t2125_page(request, year, biz, editing=edit, error=error)
+
+    def _t2125_page(request: Request, year: int | None, biz: str, form=None, editing: int | None = None, error: str = ""):
         year = pick_year(year)
         biz = _business_arg(biz or business.FUTURES)
         if payouts.monthly(conn, year)["unconverted"] or business.net_cad(business.t5008_for(conn, year)) is None:
             fx.fill_missing_cad(conn, fetcher)
+        cca.sync_assets(conn)
         both = {b: business.t2125(conn, year, b) for b in business.BUSINESSES}
+        if form is None and editing:
+            row = conn.execute("SELECT * FROM assets WHERE id = ?", (editing,)).fetchone()
+            if row:
+                form = cca.AssetForm(
+                    row["name"], row["available_on"], f"{row['cost_cents'] / 100:.2f}", row["cls"], row["business"],
+                    row["use_pct"], row["disposed_on"] or "",
+                    "" if row["proceeds_cents"] is None else f"{row['proceeds_cents'] / 100:.2f}",
+                )
+        editing_row = conn.execute("SELECT * FROM assets WHERE id = ?", (editing,)).fetchone() if editing else None
         return render(
-            request, "t2125.html", year=year, years=all_years() or [year], business=biz, t=both[biz], both=both,
-            split_set=business.is_split_set(conn, year),
+            request, "t2125.html", year=year, years=sorted(set(all_years()) | {year}, reverse=True), business=biz,
+            t=both[biz], both=both, split_set=business.is_split_set(conn, year), classes=cca.CLASSES,
+            vendor_businesses=business.VENDOR_BUSINESSES, form=form or cca.AssetForm(available_on=f"{year}-01-01"),
+            editing=editing_row, error=error, capital_categories=cca.CAPITAL_CATEGORIES,
         )
+
+    def _t2125_url(year, biz: str, anchor: str = "", **extra) -> str:
+        return f"/t2125?{urlencode({'year': year, 'business': biz, **extra})}{anchor}"
+
+    @app.post("/assets", response_class=HTMLResponse)
+    def save_asset(
+        request: Request,
+        asset_id: int | None = Form(None),
+        name: str = Form(""),
+        available_on: str = Form(""),
+        cost: str = Form(""),
+        cls: str = Form("50"),
+        asset_business: str = Form(business.SHARED),
+        use_pct: str = Form("100"),
+        disposed_on: str = Form(""),
+        proceeds: str = Form(""),
+        year: int = Form(...),
+        biz: str = Form("", alias="business"),
+    ):
+        form = cca.AssetForm(name, available_on, cost, cls, asset_business, use_pct, disposed_on, proceeds)
+        if cca.save_asset(conn, form, asset_id) is None:
+            return _t2125_page(request, year, biz, form, asset_id)
+        return RedirectResponse(_t2125_url(year, biz, "#assets"), status_code=303)
+
+    @app.post("/assets/{asset_id}/delete")
+    def delete_asset(asset_id: int, year: int = Form(...), biz: str = Form("", alias="business")):
+        # Assets that come from a charge go away when the charge is excluded or its vendor isn't capital
+        conn.execute("DELETE FROM assets WHERE id = ? AND txn_id IS NULL", (asset_id,))
+        conn.commit()
+        return RedirectResponse(_t2125_url(year, biz, "#assets"), status_code=303)
+
+    @app.post("/cca/claim")
+    def save_claim(year: int = Form(...), biz: str = Form("", alias="business"), cls: str = Form(...), claim: str = Form("")):
+        error = cca.set_claim(conn, year, _business_arg(biz), cls, claim)
+        return RedirectResponse(_t2125_url(year, biz, "#cca", **({"error": error} if error else {})), status_code=303)
 
     @app.get("/imports", response_class=HTMLResponse)
     def imports(request: Request):

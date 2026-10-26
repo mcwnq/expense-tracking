@@ -22,36 +22,117 @@
 
 <div class="kpis">
   <div><div class="label muted">Line 8299 · Gross business income</div><div class="big">{{ t.gross|money }}</div></div>
-  <div><div class="label muted">Line 9368 · Total business expenses</div><div class="big">{{ t.expenses|money }}</div></div>
-  <div class="dark"><div class="label">Line 9369 · Net income before adjustments</div><div class="big">{{ t.net|money }}</div></div>
+  <div><div class="label muted">Line 9368 · Total expenses</div><div class="big">{{ t.expenses|money }}</div></div>
+  <div class="dark"><div class="label">Line 9369 · Net income (loss) before adjustments</div><div class="big">{{ t.net|money }}</div></div>
 </div>
 {% if t.unconverted or t.trading is none %}<p class="warn">Some USD amounts have no Bank of Canada rate yet (are you offline?) and aren't counted. Reload the page to try again.</p>{% endif %}
 
-<h2>Part 3 · Business income</h2>
+<h2>Part 3C · Gross business income</h2>
 <table>
-  <tr><th style="width:110px">3A / 8000</th>
-    <td>Gross sales, commissions or fees<span class="small muted">{% if business == "Futures" %}Prop firm payouts ({{ t.payout_count }}) from the <a href="/payouts?year={{ year }}">Payouts</a> page{% else %}Prop firm payouts count as Futures{% endif %}</span></td>
+  <tr><th style="width:110px">8000</th>
+    <td>Adjusted gross sales<span class="small muted">{% if business == "Futures" %}Prop firm payouts ({{ t.payout_count }}) from the <a href="/payouts?year={{ year }}">Payouts</a> page{% else %}Prop firm payouts count as Futures{% endif %}</span></td>
     <td class="num">{{ t.payouts|money }}</td></tr>
   <tr><th>8230</th>
-    <td>Other income<span class="small muted">Net trading result from the <a href="/t5008?{{ {'year': year, 'business': business}|urlencode }}">T5008</a> page ({{ t.trading_count }} {{ "entry" if t.trading_count == 1 else "entries" }})</span></td>
-    <td class="num">{{ (t.trading or 0)|money }}</td></tr>
+    <td>Other income<span class="small muted">Net trading result from the <a href="/t5008?{{ {'year': year, 'business': business}|urlencode }}">T5008</a> page ({{ t.trading_count }} {{ "entry" if t.trading_count == 1 else "entries" }}){% if t.cca.recapture %}, plus CCA recapture {{ t.cca.recapture|money }}{% endif %}</span></td>
+    <td class="num">{{ t.other_income|money }}</td></tr>
   <tfoot><tr><th>8299</th><td>Gross business income</td><td class="num">{{ t.gross|money }}</td></tr></tfoot>
 </table>
 
-<h2>Part 5 · Business expenses</h2>
+<h2>Part 4 · Expenses</h2>
 {% if t.lines %}
 <table>
   <tr><th style="width:110px">Line</th><th>Vendor</th><th>Business</th><th class="num">CAD</th></tr>
   {% for line in t.lines %}
-  <tr class="group"><th>{{ line.code }}</th><td colspan="2">{{ line.name }}</td><td class="num">{{ line.total|money }}</td></tr>
+  <tr class="group"><th>{{ line.code }}</th><td colspan="2">{{ line.name }}{% if line.code == "9936" %} <a class="small" href="#cca" style="display:inline">from Area A below</a>{% endif %}</td><td class="num">{{ line.total|money }}</td></tr>
   {% for it in line.items %}
   <tr><td></td><td>{{ it.vendor }}</td><td class="muted">{{ it.business }}</td><td class="num">{{ it.cents|money }}</td></tr>
   {% endfor %}
-  {% if line.code == "9936" %}<tr><td></td><td colspan="3" class="warn small">Equipment is usually claimed as capital cost allowance over several years, not all at once. Check the class and rate with your accountant.</td></tr>{% endif %}
   {% endfor %}
-  <tfoot><tr><th>9368</th><td colspan="2">Total business expenses</td><td class="num">{{ t.expenses|money }}</td></tr></tfoot>
+  <tfoot><tr><th>9368</th><td colspan="2">Total expenses</td><td class="num">{{ t.expenses|money }}</td></tr></tfoot>
 </table>
 {% else %}<p class="muted">No {{ business }} or Shared expenses in {{ year }}.</p>{% endif %}
+
+<h2 id="cca">Area A · Capital cost allowance</h2>
+<p class="muted">Equipment and software you'll use for years are claimed a part each year. Charges whose vendor category is {{ capital_categories|join(" or ") }} become assets below instead of expenses. {{ business }} gets its own assets in full and its share of Shared ones. Balances carry over from year to year.</p>
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+{% if t.cca.rows %}
+<div class="scroll">
+<table>
+  <tr><th>Class</th><th class="num">Opening UCC</th><th class="num">Additions</th><th class="num">Sold</th>
+    <th class="num">First-year boost</th><th class="num">Base</th><th class="num">Rate</th><th class="num">Most you can claim</th>
+    <th class="num">Claim</th><th class="num">Closing UCC</th></tr>
+  {% for r in t.cca.rows %}
+  <tr>
+    <th>{{ r.cls }} · {{ r.name }}</th>
+    <td class="num">{{ r.opening|money }}</td><td class="num">{{ r.additions|money }}</td><td class="num">{{ r.proceeds|money }}</td>
+    <td class="num">{{ r.boost|money }}</td><td class="num">{{ r.base|money }}</td>
+    <td class="num">{{ (r.rate * 100)|round|int }}%</td><td class="num">{{ r.most|money }}</td>
+    <td class="num nowrap">
+      {% if r.recapture %}<span class="warn">Recapture {{ r.recapture|money }} (line 8230)</span>
+      {% elif r.terminal_loss %}<span class="warn">Terminal loss {{ r.terminal_loss|money }} (line 9270)</span>
+      {% else %}
+      <form class="inline" method="post" action="/cca/claim">
+        <input type="hidden" name="year" value="{{ year }}"><input type="hidden" name="business" value="{{ business }}">
+        <input type="hidden" name="cls" value="{{ r.cls }}">
+        <input name="claim" inputmode="decimal" size="9" value="{{ '%.2f'|format(r.claim / 100) }}" aria-label="CCA to claim for class {{ r.cls }}" style="text-align:right">
+        <button class="secondary">Save</button>
+      </form>{% if r.claim_set %}<span class="small muted">Less than the most. Clear it to claim the most.</span>{% endif %}
+      {% endif %}
+    </td>
+    <td class="num">{{ r.closing|money }}</td>
+  </tr>
+  {% endfor %}
+  <tfoot><tr><th colspan="8">CCA for {{ business }} (Area A amount ii, on line 9936)</th><td class="num">{{ t.cca.total|money }}</td><td></td></tr></tfoot>
+</table>
+</div>
+{% else %}<p class="muted">No {{ business }} or Shared assets in {{ year }} or earlier.</p>{% endif %}
+
+<h3 id="assets">Assets in this schedule</h3>
+{% if t.cca.assets %}
+<div class="scroll">
+<table>
+  <tr><th>Available for use</th><th>Asset</th><th>From</th><th>Class</th><th>Business</th><th class="num">Business use</th>
+    <th class="num">Cost</th><th class="num">{{ business }} share</th><th>Sold</th><th></th></tr>
+  {% for s in t.cca.assets %}{% set a = s.asset %}
+  <tr>
+    <td class="nowrap">{{ a.available_on }}</td><td>{{ a.name }}</td>
+    <td class="muted">{% if a.txn_id %}<a href="/transactions?{{ {'q': a.name}|urlencode }}">A charge</a>{% else %}Added by hand{% endif %}</td>
+    <td>{{ a.cls }} · {{ classes[a.cls][0] }}</td><td>{{ s.label }}</td>
+    <td class="num">{{ a.use_pct }}%</td><td class="num">{{ a.cost_cents|money }}</td><td class="num">{{ s.cents|money }}</td>
+    <td class="nowrap">{% if a.disposed_on %}{{ a.disposed_on }} for {{ a.proceeds_cents|money }}{% else %}—{% endif %}</td>
+    <td class="nowrap"><a href="{{ '/t2125?' ~ ({'year': year, 'business': business, 'edit': a.id}|urlencode) }}#asset-form">Edit</a>
+      {% if not a.txn_id %}<form class="inline" method="post" action="/assets/{{ a.id }}/delete"
+        onsubmit="return confirm({{ ('Delete ' ~ a.name ~ '?')|tojson|forceescape }})">
+        <input type="hidden" name="year" value="{{ year }}"><input type="hidden" name="business" value="{{ business }}">
+        <button class="link">Delete</button></form>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% endif %}
+
+<form class="card" method="post" action="/assets" id="asset-form">
+  <div class="toolbar" style="margin-bottom:8px">
+    <h3 style="margin:0">{% if editing %}Edit {{ editing.name }}{% else %}Add an asset by hand{% endif %}</h3>
+    <span class="muted">{% if editing and editing.txn_id %}Cost and date follow the charge it came from.{% else %}For something not in your card statements, or bought before you used this app.{% endif %}</span>
+  </div>
+  {% for e in form.errors %}<p class="error" role="alert">{{ e }}</p>{% endfor %}
+  {% if editing %}<input type="hidden" name="asset_id" value="{{ editing.id }}">{% endif %}
+  <input type="hidden" name="year" value="{{ year }}"><input type="hidden" name="business" value="{{ business }}">
+  {% set locked = editing and editing.txn_id %}
+  <div class="grid">
+    <div><label for="a-name">Asset</label><input id="a-name" name="name" value="{{ form.name }}" placeholder="e.g. Laptop"></div>
+    <div><label for="a-date">Available for use</label><input id="a-date" name="available_on" type="date" value="{{ form.available_on }}" {% if locked %}disabled{% endif %}></div>
+    <div><label for="a-cost">Cost in CAD</label><input id="a-cost" name="cost" inputmode="decimal" value="{{ form.cost }}" placeholder="0.00" {% if locked %}disabled{% endif %}></div>
+    <div><label for="a-cls">Class</label><select id="a-cls" name="cls">{% for c, (n, rate) in classes.items() %}<option value="{{ c }}" {% if c == form.cls %}selected{% endif %}>{{ c }} · {{ n }} ({{ (rate * 100)|round|int }}%)</option>{% endfor %}</select></div>
+    <div><label for="a-biz">Business</label><select id="a-biz" name="asset_business">{% for b in vendor_businesses %}<option {% if b == form.business %}selected{% endif %}>{{ b }}</option>{% endfor %}</select></div>
+    <div><label for="a-use">Business use %</label><input id="a-use" name="use_pct" inputmode="decimal" value="{{ form.use_pct }}"></div>
+    <div><label for="a-sold">Sold on (optional)</label><input id="a-sold" name="disposed_on" type="date" value="{{ form.disposed_on }}"></div>
+    <div><label for="a-proceeds">Sold for (optional)</label><input id="a-proceeds" name="proceeds" inputmode="decimal" value="{{ form.proceeds }}" placeholder="0.00"></div>
+  </div>
+  <button>{% if editing %}Save changes{% else %}Add asset{% endif %}</button>
+  {% if editing %}<a href="/t2125?{{ {'year': year, 'business': business}|urlencode }}#assets" style="margin-left:12px">Cancel</a>{% endif %}
+</form>
 
 <div class="card split-row" style="margin-top:16px">
   <strong>Both businesses</strong>
@@ -59,5 +140,5 @@
   <span>Total self-employment income <strong>{{ (both.values()|sum(attribute="net"))|money }}</strong></span>
 </div>
 
-<p class="muted">These are suggestions to make filing easier, not tax advice. Review them with your accountant before you file.</p>
+<p class="muted">The first-year boost follows Area A of the 2025 T2125: assets bought after 2024 skip the half-year rule, computers (class 50) get an extra 9/11 so they're written off in full, and other classes except 12 get an extra half. You can claim less than the most and keep more for later years. These are suggestions to make filing easier, not tax advice. Review them with your accountant before you file.</p>
 {% endblock %}

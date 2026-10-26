@@ -136,6 +136,30 @@ CREATE TABLE IF NOT EXISTS t5008 (
     cad_cents      INTEGER
 );
 
+-- Capital assets for CCA. txn_id links an asset made from a capital charge (its
+-- cost and date follow the charge); assets added by hand have none.
+CREATE TABLE IF NOT EXISTS assets (
+    id             INTEGER PRIMARY KEY,
+    txn_id         INTEGER UNIQUE REFERENCES transactions(id) ON DELETE CASCADE,
+    name           TEXT NOT NULL,
+    available_on   TEXT NOT NULL,         -- ISO date it became available for use
+    cost_cents     INTEGER NOT NULL,      -- CAD
+    cls            TEXT NOT NULL,         -- CCA class, e.g. 50
+    business       TEXT NOT NULL DEFAULT 'Shared',  -- Futures, Options & Stocks or Shared
+    use_pct        TEXT NOT NULL DEFAULT '100',     -- business-use %, decimal string
+    disposed_on    TEXT,
+    proceeds_cents INTEGER
+);
+
+-- A CCA claim lower than the most allowed, per year, business and class.
+CREATE TABLE IF NOT EXISTS cca_claims (
+    year        INTEGER NOT NULL,
+    business    TEXT NOT NULL,
+    cls         TEXT NOT NULL,
+    claim_cents INTEGER NOT NULL,
+    PRIMARY KEY (year, business, cls)
+);
+
 CREATE TABLE IF NOT EXISTS fx_rates (
     rate_date TEXT PRIMARY KEY,          -- ISO date of the Bank of Canada observation
     usd_cad   TEXT NOT NULL,             -- decimal string
