@@ -185,6 +185,7 @@ class ExpenseItem:
     vendor: str
     business: str  # Futures, Options & Stocks, or "Shared · 60% of 812.60"
     cents: int
+    vendor_id: int | None = None  # None for CCA lines
 
 
 @dataclass
@@ -233,7 +234,7 @@ def t2125(conn: sqlite3.Connection, year: int, business: str) -> T2125:
 
     pct = futures_pct(conn, year)
     biz = {r["id"]: r["business"] for r in conn.execute("SELECT id, business FROM vendors")}
-    s = vendors.summary(conn, year)
+    s = vendors.summary(conn, year, expenses_only=True)
     lines: dict[str, ExpenseLine] = {}
     for v in s.all_vendors:
         owner = biz.get(v.id, SHARED)
@@ -249,7 +250,7 @@ def t2125(conn: sqlite3.Connection, year: int, business: str) -> T2125:
         if v.category in cca.CAPITAL_CATEGORIES:
             continue  # claimed through CCA
         code, name = LINES.get(v.category, ("9270", "Other expenses"))
-        lines.setdefault(code, ExpenseLine(code, name)).items.append(ExpenseItem(v.name, label, cents))
+        lines.setdefault(code, ExpenseLine(code, name)).items.append(ExpenseItem(v.name, label, cents, v.id))
 
     if business == FUTURES:
         paid = payouts.for_year(conn, year)

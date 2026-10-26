@@ -702,3 +702,34 @@ def test_cca_on_t2125(tmp_path):
     client.post("/transactions/set-included", data={"ids": "3", "included": 0})
     r = client.get("/t2125", params={"year": 2026, "business": "Options & Stocks"})
     assert "760.00" not in r.text
+
+
+def test_move_charge_to_cca(tmp_path):
+    from app import db
+
+    client = TestClient(create_app(tmp_path / "t.db", fetcher=lambda s, e: {}))
+    client.post("/accounts", data={"name": "Visa", "currency": "CAD"})
+    client.post("/vendors", data={"name": "TradingView", "category": "Software", "pattern": "TRADINGVIEW"})
+    conn = db.connect(tmp_path / "t.db")
+    tv = conn.execute("SELECT id FROM vendors WHERE name = 'TradingView'").fetchone()[0]
+    client.post(f"/vendors/{tv}", data={"category": "Software", "business": "Futures", "name": "TradingView"})
+    base = {"filename": "a.csv", "date_col": "Date", "description_col": "Description", "amount_col": "Amount",
+            "charges_positive": 1, "has_header": 1, "format_name": "x", "account_id": 1}
+    csv = "Date,Description,Amount\n2026-01-15,TRADINGVIEW MONTHLY,30.00\n2026-06-01,TRADINGVIEW LIFETIME,1500.00\n"
+    client.post("/import/confirm", data={**base, "csv_text": csv})
+    life = conn.execute("SELECT id FROM transactions WHERE description LIKE '%LIFETIME'").fetchone()[0]
+
+    r = client.get("/t2125", params={"year": 2026, "business": "Futures"})
+    assert "1,530.00" in r.text and "Move to CCA" in r.text
+    assert 'value="12" selected' in r.text  # software defaults to class 12
+
+    r = client.post(f"/transactions/{life}/capital", data={"cls": "12", "year": 2026, "business": "Futures"})
+    assert r.status_code == 200
+    assert re.search(r"8810.*?30\.00", r.text, re.S)
+    assert "Back to expenses" in r.text
+    assert conn.execute("SELECT cls FROM assets WHERE txn_id = ?", (life,)).fetchone()[0] == "12"
+    assert re.findall(r'class="big">([^<]*)<', r.text)[1] == "1,530.00"  # 30 expense + 1,500 class 12
+
+    r = client.post(f"/transactions/{life}/capital", data={"cls": "", "year": 2026, "business": "Futures"})
+    assert "Back to expenses" not in r.text
+    assert conn.execute("SELECT 1 FROM assets WHERE txn_id = ?", (life,)).fetchone() is None

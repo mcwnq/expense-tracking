@@ -276,4 +276,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
             conn.execute("ALTER TABLE vendors ADD COLUMN business TEXT NOT NULL DEFAULT 'Shared'")
         conn.execute("UPDATE vendors SET business = 'Futures' WHERE category = 'Prop firm evaluations'")
         conn.execute("PRAGMA user_version = 13")
+    if version < 14:
+        # A single charge moved from expenses to CCA, with the class it goes in (NULL = an expense)
+        if "capital_cls" not in [c["name"] for c in conn.execute("PRAGMA table_info(transactions)")]:
+            conn.execute("ALTER TABLE transactions ADD COLUMN capital_cls TEXT")
+        conn.execute("PRAGMA user_version = 14")
     conn.commit()
